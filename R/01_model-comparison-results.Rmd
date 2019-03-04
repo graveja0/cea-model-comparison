@@ -1,0 +1,561 @@
+---
+title: "Primary Results"
+output: html_document
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(message = FALSE)
+knitr::opts_chunk$set(warning = FALSE)
+```
+
+```{r, message = FALSE, warning = FALSE}
+library(tidyverse)
+library(directlabels)
+library(patchwork)
+library(rlang)
+library(randtoolbox)
+library(microbenchmark)
+library(progress)
+library(here)
+library(fs)
+library(deSolve)
+library(heemod)
+library(dplyr)
+library(purrr)
+library(flexsurv)
+library(furrr)
+library(conflicted)
+library(tangram)
+source(here("R/plot-theme.R"))
+# conflicted::conflict_scout()
+# heemood and purrr: modify
+conflict_prefer("filter", "dplyr")
+```
+
+```{r, message = FALSE, echo = FALSE, warning = FALSE}
+# Load modeling code
+source(here("R/simple-params.R"))
+source(here("R/simple-des.R"))
+source(here("R/simple-deq.R"))
+source(here("R/simple-markov.R"))
+```
+
+## Model Parameters 
+
+```{r, echo = FALSE}
+params %>% unlist() %>% data.frame() %>% 
+  rownames_to_column() %>% 
+  mutate(desc = as.character(params_lut[rowname])) %>% 
+  select(3,2) %>% 
+  mutate_at(vars(2),function(x) ifelse(x>1000,x/1000,ifelse(x<=1,round(x,3), round(x,1)))) %>% 
+  mutate(desc = gsub("$","\\$",desc)) %>% 
+  set_colnames(c("Parameter Description","Value")) %>% 
+  tangram(., as.character=TRUE, style="lancet", caption="Model Parameters",id = "params")
+```
+
+```{r, eval = TRUE, cache = TRUE}
+params$n <- 100000
+set.seed(123)
+des <- des_simulation(params); set.seed(123)
+deq <- deq_simulation(params); set.seed(123)
+mar <- markov_simulation(params); set.seed(123)
+
+icer_des <- des_icer(params); set.seed(123)
+icer_deq <- deq_icer(params); set.seed(123)
+icer_mar <- markov_icer(params); set.seed(123)
+```
+
+## Base Case Results
+
+```{r, eval = TRUE}
+base_case_result <- 
+  icer_deq %>% 
+    bind_rows(icer_mar) %>% 
+    bind_rows(icer_des) %>% 
+    mutate(model = c("DEQ","MAR","DES")) %>% 
+    select(model,ICER,NMB, everything()) %>% 
+    gather(output, value, -model) %>% 
+    tbl_df() %>% 
+    separate(col = output,into=c("output","strategy"))  
+
+base_case_result %>% 
+  filter(!is.na(strategy)) %>% 
+  spread(strategy,value) %>% 
+  mutate(output = factor(output,levels = c("dQALY","dCOST"), 
+                         labels = c("Mean QALYs","Mean Costs"))) %>% 
+  mutate(model = factor(model, levels = c("DEQ","DES","MAR"), 
+                        labels = c("Differential Equations","Discrete Event Simulation","Markov Cohort"))) %>% 
+  arrange(output,model) %>% 
+  select(output,model,ref,test) %>% 
+  mutate(incremental = test - ref) %>% 
+  bind_rows(
+      base_case_result %>% 
+        filter(is.na(strategy)) %>% 
+        mutate(output = factor(output,levels = c("dQALY","dCOST","ICER","NMB"), 
+                               labels = c("Mean QALYs","Mean Costs","ICER","Net Monetary Benefit"))) %>% 
+        mutate(model = factor(model, levels = c("DEQ","DES","MAR"), 
+                          labels = c("Differential Equations","Discrete Event Simulation","Markov Cohort"))) %>% 
+        select(model,output,incremental=value)
+  ) %>% 
+  mutate_at(vars(ref,test,incremental),function(x) ifelse(abs(x)<100,round(x,3),round(x,0))) %>%  
+  mutate(output = ifelse(model == "Differential Equations",output, "")) %>% 
+  mutate_all(funs(as.character)) %>% 
+  mutate_at(vars(ref,test), function(x) ifelse(is.na(x) | x=="NA", "",x)) %>% 
+  set_colnames(c("Outcome","Model Type","No Testing (ref.)","Genetic Testing","Incremental")) %>% 
+    tangram(., style="lancet", caption="Base Case Results",id = "base_case")
+```
+
+## PSA 
+
+```{r}
+get_params <-  function(x) {
+  params_psa %>% 
+    map(~(
+      .x(c(x))
+    ))
+}
+
+halton_draws <- 
+  halton(n = 25, dim = length(params_psa)) %>% 
+  data.frame() %>% 
+  magrittr::set_names(names(params_psa)) %>% 
+  pmap((~get_params(.x))) 
+
+plan(multiprocess)
+
+psa_des <- 
+  halton_draws %>% 
+  future_map(~(des_icer(.x)), .progress = TRUE)
+
+psa_deq <- 
+  halton_draws %>% 
+  future_map(~(deq_icer(.x)), .progress = TRUE)
+
+psa_mar <- 
+  halton_draws %>% 
+  future_map(~(markov_icer(.x)),.progress = TRUE)
+
+df_psa_des <- psa_des %>% 
+  map(~(.x %>% t() %>% tbl_df())) %>% 
+  bind_rows() %>% 
+  mutate(iteration = row_number()) %>% 
+  mutate(qaly_reference = dQALY.ref,
+         qaly_test = dQALY.test,
+         cost_reference = dCOST.ref,
+         cost_test = dCOST.test) %>% 
+  select(iteration,contains("qaly_"),contains("cost_")) %>% 
+  mutate(model = "Discrete Event Simulation")
+
+df_psa_deq <- psa_deq %>% 
+  map(~(.x %>% t() %>% tbl_df())) %>% 
+  bind_rows() %>% 
+  mutate(iteration = row_number()) %>% 
+  mutate(qaly_reference = dQALY.ref,
+         qaly_test = dQALY.test,
+         cost_reference = dCOST.ref,
+         cost_test = dCOST.test) %>% 
+  select(iteration,contains("qaly_"),contains("cost_")) %>% 
+  mutate(model = "Differential Equations")
+
+df_psa_mar <- psa_mar %>% 
+  map(~(.x %>% t() %>% tbl_df())) %>% 
+  bind_rows() %>% 
+  mutate(iteration = row_number()) %>% 
+  mutate(qaly_reference = dQALY.ref,
+         qaly_test = dQALY.test,
+         cost_reference = dCOST.ref,
+         cost_test = dCOST.test) %>% 
+  select(iteration,contains("qaly_"),contains("cost_")) %>% 
+  mutate(model = "Markov Cohort")
+
+df_psa <- 
+  df_psa_deq %>% 
+  bind_rows(df_psa_des) %>% 
+  bind_rows(df_psa_mar) %>% 
+  mutate(diff_qaly = qaly_test - qaly_reference,
+         diff_cost = cost_test - cost_reference) %>% 
+  left_join(
+    halton_draws %>% bind_rows() %>% mutate(iteration = row_number())
+  )
+```
+
+
+```{r}
+df_psa %>% 
+  ggplot(aes(x = diff_qaly, y = diff_cost, colour = model)) + 
+  geom_point() + 
+  geom_abline(slope = 100000, intercept = 0, lty = 2) + 
+  scale_x_continuous(limits = c(-.5,.5)) + 
+  scale_y_continuous(limits = c(-1000,7000)) +
+  geom_hline(aes(yintercept = 0)) + 
+  geom_vline(aes(xintercept = 0)) +
+  theme_minimal()
+  
+```
+
+
+
+
+
+```{r, eval = FALSE}
+plot_occupancy <- function(df,x,y,group,range = c(0,45)) {
+  group <- enquo(group)
+  x <- enquo(x)
+  y <- enquo(y)
+  # Plot: Total Percent of Population 
+  p <- df %>% 
+  ggplot(aes(x = !!x, y = !!y)) + geom_line(aes(colour = !!group)) + 
+   theme_bw() +
+    xlab("Time") + 
+    ylab("Percent of Population") +
+    xlim(range)
+  direct.label(p,"last.bumpup")
+}
+
+# Indication Occupancy
+ind.ordered <- sort(des$indication)
+sub <- seq(1, length(ind.ordered), by=1000)
+occ_indication <- data.frame(time = deq[,'time'], a_c = deq[,'a_c'] * 100, model = "dede") %>% 
+  bind_rows(data.frame(time = ind.ordered[sub]/365, a_c = 100*sub/params$n, model = "des")) %>% 
+  bind_rows(data.frame(time = 0:params$horizon, 
+                       a_c = c(0, cumsum(mar$combined_model$eval_strategy_list$reference$values$A_acc/10))[(0:params$horizon)*params$interval+1],
+            model = "markov")) %>% 
+  tbl_df()
+p_occ_indication <- plot_occupancy(occ_indication, x = time, y = a_c, group = model)
+
+
+# Difference in Models
+dede_fn <- approxfun(occ_indication %>% filter(model=="dede") %>% pull(time), occ_indication %>% filter(model == "dede") %>% pull(a_c))
+des_fn <- approxfun(occ_indication %>% filter(model=="des") %>% pull(time), occ_indication %>% filter(model == "des") %>% pull(a_c))
+mar_fn <- approxfun(occ_indication %>% filter(model=="markov") %>% pull(time), occ_indication %>% filter(model == "markov") %>% pull(a_c))
+
+times <- seq(0,40,0.1)
+p_df_diff <- data.frame(time = times, dede = dede_fn(times), des = des_fn(times), markov = mar_fn(times))
+p_df_diff$des <- p_df_diff$des - p_df_diff$dede
+p_df_diff$markov <- p_df_diff$markov - p_df_diff$dede
+p_df_diff <- p_df_diff %>% 
+  select(-dede) %>% 
+  gather(key,value,-time)
+
+p <- 
+  p_df_diff %>% 
+  ggplot(aes(x = time, y = value)) + geom_line(aes(colour = key)) + 
+  theme_bw() + 
+  xlab("Time") + 
+  ylab("Difference\n(% of Population)") + 
+  geom_hline(aes(yintercept = 0)) + 
+  xlim(c(0,50))
+p_diff_indication <- direct.label(p,"last.bumpup")
+
+p_occ_indication + p_diff_indication + plot_layout(ncol = 1)
+
+```
+
+```{r, eval = FALSE}
+# PSA
+
+get_params <-  function(x) {
+  params_psa %>% 
+    map(~(
+      .x(c(x))
+    ))
+}
+
+halton_draws <- 
+  halton(n = 200, dim = length(params_psa)) %>% 
+  data.frame() %>% 
+  magrittr::set_names(names(params_psa)) %>% 
+  pmap((~get_params(.x))) 
+
+plan(multiprocess)
+
+psa_deq <- 
+  halton_draws %>% 
+  future_map(~(deq_icer(.x)), .progress = TRUE)
+
+psa_mar <- 
+  halton_draws %>% 
+  future_map(~(markov_icer(.x)),.progress = TRUE)
+
+df_deq <- psa_deq %>% 
+  map(~(.x %>% t() %>% tbl_df())) %>% 
+  bind_rows() %>% 
+  mutate(iteration = row_number()) %>% 
+  mutate(qaly_reference = dQALY.ref,
+         qaly_test = dQALY.test,
+         cost_reference = dCOST.ref,
+         cost_test = dCOST.test) %>% 
+  select(iteration,contains("qaly_"),contains("cost_")) %>% 
+  mutate(model = "Differential Equations")
+
+df_mar <- psa_mar %>% 
+  map(~(.x %>% t() %>% tbl_df())) %>% 
+  bind_rows() %>% 
+  mutate(iteration = row_number()) %>% 
+  mutate(qaly_reference = dQALY.ref,
+         qaly_test = dQALY.test,
+         cost_reference = dCOST.ref,
+         cost_test = dCOST.test) %>% 
+  select(iteration,contains("qaly_"),contains("cost_")) %>% 
+  mutate(model = "Markov Cohort")
+
+```
+
+
+```{r, eval = FALSE}
+
+
+# df_mar <- halton_markov %>% 
+#   tbl_df() %>% 
+#   mutate(iteration = row_number()) %>% 
+#   mutate(qaly_reference = dQALY.ref,
+#          qaly_test = dQALY.test,
+#          cost_reference = dCOST.ref,
+#          cost_test = dCOST.test) %>% 
+#   select(iteration,contains("qaly_"),contains("cost_")) %>% 
+#   mutate(model = "Markov Cohort")
+
+df_psa_long <- 
+  df_deq %>% 
+  #bind_rows(df_des) %>% 
+  bind_rows(df_mar) %>% 
+  gather(key,value,-iteration,-model) %>% 
+  separate(key,into = c("outcome","strategy")) %>% 
+  spread(outcome,value) 
+
+
+p_ce_plane <- 
+  df_psa_long %>% ggplot(aes(x = qaly, y = cost)) + 
+  geom_point(aes(colour=strategy)) + 
+  theme_minimal() + 
+  #scale_colour_grey() + 
+  xlab("QALYs") + 
+  ylab("Costs") + 
+  facet_wrap(~model) +
+  NULL
+
+direct.label(p_ce_plane,"smart.grid")
+
+lambda_range <- unique(c(seq(0,1000,100),seq(1000,5000,500),seq(5000,30000,1000),seq(30000,300000,5000)))
+
+#lambda_range <- seq(80000,120000,1000)
+
+df_ceac_deq <- 
+  lambda_range %>% 
+  map(~(
+  df_psa_long %>% filter(model == "Differential Equations") %>% 
+  mutate(nmb = as.numeric(paste0(.x)) * qaly - cost))) %>% 
+  magrittr::set_names(lambda_range) %>% 
+  bind_rows(.id = "lambda") %>% 
+  mutate(lambda = as.numeric(paste0(lambda))) %>% 
+  group_by(iteration,lambda) %>% 
+  mutate(max = max(nmb)) %>% 
+  mutate(max = as.integer(nmb==max)) %>% 
+  mutate(model = "Differential Equations")
+
+df_ceaf_cutpoints_deq <- 
+  lambda_range %>% 
+    map(~(df_ceac_deq %>% 
+    group_by(strategy,lambda) %>% 
+    mutate_at(vars(cost,qaly),funs(mean = mean)) %>% 
+    mutate(nmb = .x * qaly_mean - cost_mean) %>% 
+    ungroup() %>% 
+    select(-lambda))) %>% 
+    magrittr::set_names(lambda_range)  %>% 
+    bind_rows(.id="lambda") %>% 
+    mutate(lambda = as.numeric(paste0(lambda))) %>%
+    group_by(lambda) %>% 
+    mutate(max = as.integer(nmb == max(nmb))) %>% 
+    filter(max ==1) %>% 
+    select(lambda,strategy) %>% 
+    unique()  %>% 
+    mutate(optimal = 1)
+
+df_ceaf_deq <- 
+  df_ceac_deq %>% 
+  group_by(lambda,strategy) %>% 
+  summarise_at(vars(max),funs(mean)) %>% 
+  inner_join(df_ceaf_cutpoints_deq,c("lambda","strategy"))  %>% 
+  mutate(model = "Differential Equations")
+
+df_ceac_mar  <- 
+  lambda_range %>% 
+  map(~(
+  df_psa_long %>% filter(model == "Markov Cohort") %>% 
+  mutate(nmb = as.numeric(paste0(.x)) * qaly - cost))) %>% 
+  magrittr::set_names(lambda_range) %>% 
+  bind_rows(.id = "lambda") %>% 
+  mutate(lambda = as.numeric(paste0(lambda))) %>% 
+  group_by(iteration,lambda) %>% 
+  mutate(max = max(nmb)) %>% 
+  mutate(max = as.integer(nmb==max)) %>% 
+  mutate(model = "Markov Cohort")
+
+df_ceaf_cutpoints_mar <- 
+  lambda_range %>% 
+    map(~(df_ceac_mar %>% 
+    group_by(strategy,lambda) %>% 
+    mutate_at(vars(cost,qaly),funs(mean = mean)) %>% 
+    mutate(nmb = .x * qaly_mean - cost_mean) %>% 
+    ungroup() %>% 
+    select(-lambda))) %>% 
+    magrittr::set_names(lambda_range)  %>% 
+    bind_rows(.id="lambda") %>% 
+    mutate(lambda = as.numeric(paste0(lambda))) %>%
+    group_by(lambda) %>% 
+    mutate(max = as.integer(nmb == max(nmb))) %>% 
+    filter(max ==1) %>% 
+    select(lambda,strategy) %>% 
+    unique()  %>% 
+    mutate(optimal = 1)
+
+df_ceaf_mar <- 
+  df_ceac_mar %>% 
+  group_by(lambda,strategy) %>% 
+  summarise_at(vars(max),funs(mean)) %>% 
+  inner_join(df_ceaf_cutpoints_mar,c("lambda","strategy")) %>% 
+  mutate(model = "Markov Cohort")
+
+
+df_ceac <- 
+  df_ceac_deq %>% 
+  bind_rows(df_ceaf_mar)
+
+df_ceaf <- 
+  df_ceaf_deq %>% 
+  #bind_rows(df_ceaf_des) %>% 
+  bind_rows(df_ceaf_mar)
+
+decision_error_range <- df_ceaf_cutpoints_deq %>%
+  anti_join(df_ceaf_cutpoints_mar) %>%
+  pull(lambda) %>% range()
+
+p_ceac <- 
+  df_ceac %>% 
+  filter(model != "Markov Cohort") %>% 
+  group_by(lambda,strategy,model) %>% 
+  summarise_at(vars(max),funs(mean)) %>% 
+  ggplot(aes(x = lambda, y= max)) + geom_line(aes(colour = strategy, lty = model)) + 
+  theme_minimal() + 
+  geom_line(data = df_ceaf, lwd=1.5, aes(colour=strategy,lty=model)) + 
+  xlab("Willingness to Pay Threshold") + 
+  ylab("Pr(Cost Effective)") #+ 
+  #geom_rect(aes(xmin = decision_error_range[1], xmax = decision_error_range[2], ymin = 0, ymax = Inf), fill =  "lightgrey",alpha = 0.01)
+
+direct.label(p_ceac,"angled.boxes")  
+  
+
+```
+
+```{r, eval = FALSE}
+halton_run <- function(n, FUN=deq_icer, start=1)
+{
+  if(start > 1) halton(start-1, 14, init=TRUE)
+
+  pb <- progress_bar$new(format= "(:spin) [:bar] :percent\r", total = n)
+
+  result <- apply(halton(n, 14, init=(start == 1)), 1, function(x)
+  {
+    pb$tick()
+
+    params$p_bd = x[1] # Probability of death from B
+    params$p_g  = x[2] # Probability of genetic variant
+    params$r_a  = inst_rate(x[3], 10) # 10% Rate of A over a 10 year period
+    params$r_b  = inst_rate(x[4], 1) # 2% Rate of B
+    params$rr_b = x[5] # Reduced relative risk of B
+
+    # Costs
+    params$c_a   <- exp(4.60517 * x[6] + 6.907755) # Cost of Event A 1000 -> 10000 log scale
+    params$c_bs  <- exp(4.60517 * x[7] + 6.907755) # Cost of Event B survival
+    params$c_bd  <- exp(4.60517 * x[8] + 6.907755) # Cost of Event B death
+    params$c_tx  <- 9.99*x[9]+0.01   # Cost of daily normal treatment
+    params$c_alt <- 99.99*x[10]+0.01     # Cost of alternate treatment
+    params$c_t   <- 1000*x[11]   # Cost of test
+
+    params$d_a   <- 0.5*x[12]     # Disutility of A
+    params$d_at  <- 10*x[13]      # Duration of A in years.
+    params$d_b   <- 0.5*x[14]     # Disutility of B
+
+    #params$horizon <- x[15]*79 + 1 # 1:80 years for simulation
+
+    #cat("running ")
+    #print(params)
+    #cat("\n")
+    et <- microbenchmark(results <- FUN(params), times=1L)
+
+    x <- with(params, c(p_bd, p_g, r_a, r_b, rr_b, c_a, c_bs, c_bd, c_tx, c_alt, c_t, d_a, d_at, d_b, horizon, et$time/1e6, results))
+
+    names(x) <- c("p_bd", "p_g", "r_a", "r_b", "rr_b", "c_a", "c_bs", "c_bd", "c_tx", "c_alt", "c_t", "d_a", "d_at", "d_b",
+                  "horizon", "system.time", names(results))
+    x
+  })
+ pb$terminate()
+
+  result
+}
+
+halton_deq <- t(halton_run(100, deq_icer))
+write.csv(halton_deq,file="./halton_deq.csv")
+halton_markov <- t(halton_run(100, markov_icer))
+write.csv(halton_markov,file = "./halton_markov.csv")
+halton_des <- t(halton_run(3,des_icer))
+```
+
+
+```{r, eval = FALSE}
+plot_occupancy <- function(df,x,y,group,range = c(0,45)) {
+  group <- enquo(group)
+  x <- enquo(x)
+  y <- enquo(y)
+  # Plot: Total Percent of Population 
+  p <- df %>% 
+  ggplot(aes(x = !!x, y = !!y)) + geom_line(aes(colour = !!group)) + 
+   theme_bw() +
+    xlab("Time") + 
+    ylab("Percent of Population") +
+    xlim(range)
+  direct.label(p,"last.bumpup")
+}
+
+# Indication Occupancy
+ind.ordered <- sort(des$indication)
+sub <- seq(1, length(ind.ordered), by=1000)
+occ_indication <- data.frame(time = deq[,'time'], a_c = deq[,'a_c'] * 100, model = "dede") %>% 
+  bind_rows(data.frame(time = ind.ordered[sub]/365, a_c = 100*sub/params$n, model = "des")) %>% 
+  bind_rows(data.frame(time = 0:params$horizon, 
+                       a_c = c(0, cumsum(mar$combined_model$eval_strategy_list$reference$values$A_acc/10))[(0:params$horizon)*params$interval+1],
+            model = "markov")) %>% 
+  tbl_df()
+p_occ_indication <- plot_occupancy(occ_indication, x = time, y = a_c, group = model) +  xlim(c(0,50)) + theme_tufte_revised()
+
+# Difference in Models
+dede_fn <- approxfun(occ_indication %>% filter(model=="dede") %>% pull(time), occ_indication %>% filter(model == "dede") %>% pull(a_c))
+des_fn <- approxfun(occ_indication %>% filter(model=="des") %>% pull(time), occ_indication %>% filter(model == "des") %>% pull(a_c))
+mar_fn <- approxfun(occ_indication %>% filter(model=="markov") %>% pull(time), occ_indication %>% filter(model == "markov") %>% pull(a_c))
+
+times <- seq(0,40,0.1)
+p_df_diff <- data.frame(time = times, dede = dede_fn(times), des = des_fn(times), markov = mar_fn(times))
+p_df_diff$des <- p_df_diff$des - p_df_diff$dede
+p_df_diff$markov <- p_df_diff$markov - p_df_diff$dede
+p_df_diff <- p_df_diff %>% 
+  select(-dede) %>% 
+  gather(key,value,-time)
+
+p <- 
+  p_df_diff %>% 
+  ggplot(aes(x = time, y = value)) + geom_line(aes(colour = key)) + 
+  theme_bw() + 
+  xlab("Time") + 
+  ylab("Difference\n(% of Population)") + 
+  geom_hline(aes(yintercept = 0)) + 
+  xlim(c(0,50)) + 
+  theme_tufte_revised()
+p_diff_indication <- direct.label(p,"last.bumpup")
+
+p_occ_indication + p_diff_indication + plot_layout(ncol = 1)
+
+```
+
