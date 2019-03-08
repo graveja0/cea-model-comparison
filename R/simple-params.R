@@ -49,7 +49,7 @@ params_lut <-
 
 params <- list(
   # Controls for model execution
-  n          = 1000,      # DES simulations to perform
+  n          = 1e6,      # DES simulations to perform
   resolution = 7/365,        # Diff Eq Time step for DEQ approach
   interval   = 1,            # Markov Interval
   horizon    = 40,           # Time horizon of simulation
@@ -64,26 +64,26 @@ params <- list(
   p_o  = 1.0,                # Probability of ordering test
   p_bd = 0.10,               # Probability of death from B
   p_g  = 0.2,                # Probability of genetic variant
-  r_a_pct = 100,#10,              # Percentage who develop condition.
-  r_a_dur = 0.001,#10,              # Condition indication rate duration (in years).
-  r_a  = inst_rate(.9999, .00001),# 10% Rate of A over a 10 year period
+  r_a_pct = 10,              # Percentage who develop condition.
+  r_a_dur = 10,              # Condition indication rate duration (in years).
+  r_a  = inst_rate(.9999, 1e-7), # 10% Rate of A over a 10 year period
   r_b_pct = 5,               # Adverse drug event percentage
   r_b_dur = 5,               # Adverse drug event duration (in years). 
-  r_b  = inst_rate(0.05, 5), # 2% Rate of B over a 1 year period  
+  r_b  = inst_rate(0.05, 5), # 5% Rate of B over a 5 year period  
   rr_b = 0.7,                # Reduced relative risk of B
   
   # Costs
-  c_a   = 0,             # Cost of Event A
+  c_a   = 10000,             # Cost of Event A
   c_bs  = 25000,             # Cost of Event B survival
   c_bd  = 15000,             # Cost of Event B death
   c_tx  = 0.5,               # Cost of normal treatment
-  c_alt = 3,                 # Cost of alternate treatment
+  c_alt = 2.75,                 # Cost of alternate treatment
   c_t   = 100,               # Cost of test
   
   # Disutilities
   d_a   = 0.05,              # Disutility of A
   d_at  = 1,                 # Duration of A in years.
-  d_b   = 0.15,               # Disutility of B
+  d_b   = 0.15,              # Disutility of B
   
   # Discounting
   disc  = 0.03               # Annual Discount Rate
@@ -103,28 +103,27 @@ params_psa <- list(
   rate    = function(x) qnorm(p = x, mean = params$rate,sd = 0),
   
   # Probabilities and rates
-  p_o  = function(x) qnorm(p = x, mean = params$p_o, sd = 0),                # Probability of ordering test (overwritten by runs to 0 and 1)
-  p_bd = function(x) qbeta(p = x, shape1 = params$p_bd * 100  , shape2=100-params$p_bd * 100),  # Probability of death from B
-  p_g  = function(x) qunif(p = x, min = 0.0, max = 0.4),              # Probability of genetic variant
-  # r_a  = function(x) qbeta(p = x, shape1 = 100 * inst_rate(percent = params$r_a_pct/100, timeframe = params$r_a_dur )  , 
-  #                          shape2 = 100 - 100 * inst_rate(percent = params$r_a_pct/100, timeframe = params$r_a_dur )),# Inst Rate of A
-  r_a = function(x) qnorm(p = x , mean = params$r_a, sd =0),
-  r_b  = function(x) qbeta(p = x, shape1 = 100 * inst_rate(percent = params$r_b_pct/100, timeframe = params$r_b_dur )  , 
-                           shape2 = 100 - 100 * inst_rate(percent = params$r_b_pct/100, timeframe = params$r_b_dur )),# Inst Rate of B
-  rr_b = function(x) qunif(p = x, min = 0.5, max = 0.9),                # Reduced relative risk of B
+  p_o  = function(x) qunif(p = x, min = 0.0, max = 1),                # Probability of ordering test (overwritten by runs to 0 and 1)
+  p_bd = function(x) qunif(p = x, min = 0.0, max = 1),                       # Probability of death from B
+  p_g  = function(x) qunif(p = x, min = 0.0, max = 0.5),              # Probability of genetic variant
+  r_a_pct = function(x) qunif(p = x, min = 0.0, max = 1),              # Percentage who develop condition.
+  r_a_dur = function(x) qunif(p = x, min = 1e-7, max = params$horizon),              # Condition indication rate duration (in years).
+  r_b_pct = function(x) qunif(p = x, min = 0.0, max = 1),               # Adverse drug event percentage
+  r_b_dur = function(x) qunif(p = x, min = 1e-7, max = params$horizon),               # Adverse drug event duration (in years). 
+  rr_b = function(x) qunif(p = x, min = 0, max = 1),                # Reduced relative risk of B
   
   # Costs
-  c_a   = function(x) qnorm(p = x, mean = params$c_a, sd = 1000),              # Cost of Event A
-  c_bs  = function(x) qnorm(p = x, mean = params$c_bs, sd = 2000),              # Cost of Event B survival
-  c_bd  = function(x) qnorm(p = x, mean = params$c_bd, sd = 1000),             # Cost of Event B death
-  c_tx  = function(x) qunif(p = x, min = 0.25, max = 0.75),                 # Cost of normal treatment
-  c_alt = function(x) qunif(p = x, min = 1, max = 4),                # Cost of alternate treatment
-  c_t   = function(x) qunif(p = x, min = 100, max = 300),               # Cost of test
+  c_a   = function(x) qunif(p = x, min = 1000, max = 100000),              # Cost of Event A
+  c_bs  = function(x) qunif(p = x, min = 1000, max = 100000),              # Cost of Event B survival
+  c_bd  = function(x) qunif(p = x, min = 1000, max = 100000),             # Cost of Event B death
+  c_tx  = function(x) qunif(p = x, min = 0.25, max = 4),                 # Cost of normal treatment
+  c_alt = function(x) qunif(p = x, min = 0.25, max = 4),                # Cost of alternate treatment
+  c_t   = function(x) qunif(p = x, min = 10, max = 10000),               # Cost of test
   
   # Disutilities
-  d_a   = function(x) qlnorm(p = x, meanlog = log(params$d_a),sdlog = .2),              # Disutility of A
-  d_at  = function(x) qnorm(p = x, mean = 1, sd = 0),                 # Duration of A in years.
-  d_b   = function(x) qlnorm(p = x, meanlog = log(params$d_b),sdlog = .5),              # Disutility of B
+  d_a   = function(x) qunif(p = x, min = 0.0, max = 0.2),              # Disutility of A
+  d_at  = function(x) qunif(p = x, min = 0, max = params$horizon),                 # Duration of A in years.
+  d_b   = function(x) qunif(p = x, min = 0, max = 0.3),              # Disutility of B
   
   # Discounting
   disc  = function(x) qnorm(p = x, mean = 0.03, sd = 0)               # Annual Discount Rate

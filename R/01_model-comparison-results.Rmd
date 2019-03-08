@@ -2,7 +2,7 @@
 title: "Primary Results"
 output: html_document
 editor_options: 
-  chunk_output_type: inline
+  chunk_output_type: console
 ---
 
 ```{r, echo = FALSE, message = FALSE, warning = FALSE}
@@ -57,12 +57,13 @@ params %>% unlist() %>% data.frame() %>%
 ```
 
 ```{r, eval = TRUE, cache = TRUE}
-params$n <- 100000
-set.seed(123)
-des <- des_simulation(params); set.seed(123)
-deq <- deq_simulation(params); set.seed(123)
-mar <- markov_simulation(params); set.seed(123)
+# set.seed(123)
+# des <- des_simulation(params); set.seed(123)
+# deq <- deq_simulation(params); set.seed(123)
+# mar <- markov_simulation(params); set.seed(123)
 
+set.seed(123)
+params$n = 100000
 icer_des <- des_icer(params); set.seed(123)
 icer_deq <- deq_icer(params); set.seed(123)
 icer_mar <- markov_icer(params); set.seed(123)
@@ -111,18 +112,26 @@ base_case_result %>%
 ## PSA 
 
 ```{r}
-get_params <-  function(x) {
-  params_psa %>% 
-    map(~(
-      .x(c(x))
+get_params <-  function(x,params) {
+    map2(params,x,~(
+      .x(.y)
     ))
-}
+} 
+
+params$n <- 1e6
+
+(draws <- halton(n = 100, dim = length(params_psa)))
 
 halton_draws <- 
-  halton(n = 25, dim = length(params_psa)) %>% 
+  draws %>% 
   data.frame() %>% 
-  magrittr::set_names(names(params_psa)) %>% 
-  pmap((~get_params(.x))) 
+  magrittr::set_names(names(params_psa))  %>% 
+  pmap(list) %>% 
+  map(~(get_params(.x,params=params_psa))) %>% 
+  map(~(data.frame(.x))) %>% bind_rows() %>% 
+  mutate(r_a = inst_rate(r_a_pct,r_a_dur)) %>% 
+  mutate(r_b = inst_rate(r_b_pct,r_b_dur)) %>% 
+  pmap(list)
 
 plan(multiprocess)
 
@@ -557,5 +566,26 @@ p_diff_indication <- direct.label(p,"last.bumpup")
 
 p_occ_indication + p_diff_indication + plot_layout(ncol = 1)
 
+```
+
+```{r}
+# 10% over a 1 year period
+# 
+# ================================================================================================
+#   Outcome                      Model Type          No Testing (ref.)  Genetic Testing  Incremental
+# ------------------------------------------------------------------------------------------------
+#   Mean QALYs             Differential Equations         21.195            21.232          0.037   
+# Discrete Event Simulation       21.197            21.234          0.037   
+# Markov Cohort             21.534            21.571          0.037   
+# Mean Costs             Differential Equations          17854             21508          3654    
+# Discrete Event Simulation        17960             21612          3652    
+# Markov Cohort              17856             21558          3702    
+# ICER                   Differential Equations                                           97525   
+# Markov Cohort                                              100245   
+# Discrete Event Simulation                                         98731   
+# Net Monetary Benefit   Differential Equations                                          92.712   
+# Markov Cohort                                              -9.065   
+# Discrete Event Simulation                                        46.922   
+# ================================================================================================
 ```
 
