@@ -111,7 +111,7 @@ base_case_result %>%
 
 ## PSA 
 
-```{r}
+```{r, cache= TRUE, eval = FALSE}
 get_params <-  function(x,params) {
     map2(params,x,~(
       .x(.y)
@@ -120,7 +120,7 @@ get_params <-  function(x,params) {
 
 params$n <- 1e6
 
-(draws <- halton(n = 100, dim = length(params_psa)))
+draws <- halton(n = 1000, dim = length(params_psa_realistic))
 
 halton_draws <- 
   draws %>% 
@@ -133,21 +133,106 @@ halton_draws <-
   mutate(r_b = inst_rate(r_b_pct,r_b_dur)) %>% 
   pmap(list)
 
+halton_draws %>% 
+  write_rds(here("output/psa/01_halton-draws-realistic.rds"))
+
+
+halton_draws_realistic <- 
+  draws %>% 
+  data.frame() %>% 
+  magrittr::set_names(names(params_psa_realistic))  %>% 
+  pmap(list) %>% 
+  map(~(get_params(.x,params=params_psa_realistic))) %>% 
+  map(~(data.frame(.x))) %>% bind_rows() %>% 
+  mutate(r_a = inst_rate(r_a_pct/100,r_a_dur)) %>% 
+  mutate(r_b = inst_rate(r_b_pct/100,r_b_dur)) %>% 
+  pmap(list)
+
+halton_draws_realistic %>% 
+  write_rds(here("output/psa/02_halton-draws-realistic.rds"))
+
 plan(multiprocess)
 
-psa_des <- 
-  halton_draws %>% 
+# psa_des <- 
+#   halton_draws %>% 
+#   future_map(~(des_icer(.x)), .progress = TRUE)
+# psa_des %>% write_rds(here("output/psa/01_des-psa.rds"))
+
+psa_des_realistic <- 
+  halton_draws_realistic %>% 
   future_map(~(des_icer(.x)), .progress = TRUE)
+psa_des_realistic %>% write_rds(here("output/psa/02_des-psa-realistic.rds"))
 
-psa_deq <- 
-  halton_draws %>% 
+# psa_deq <- 
+#   halton_draws %>% 
+#   future_map(~(deq_icer(.x)), .progress = TRUE)
+# psa_deq %>% write_rds(here("output/psa/01_deq-psa.rds"))
+plan(multiprocess)
+psa_deq_realistic <- 
+  halton_draws_realistic %>% 
   future_map(~(deq_icer(.x)), .progress = TRUE)
+psa_deq_realistic %>% write_rds(here("output/psa/02_deq-psa-realistic.rds"))
 
-psa_mar <- 
-  halton_draws %>% 
+
+# psa_mar <- 
+#   halton_draws %>% 
+#   future_map(~(markov_icer(.x)),.progress = TRUE)
+# psa_mar %>% write_rds(here("output/psa/01_mar-psa.rds"))
+plan(multiprocess)
+psa_mar_realistic <- 
+  halton_draws_realistic %>% 
   future_map(~(markov_icer(.x)),.progress = TRUE)
+psa_mar_realistic %>% write_rds(here("output/psa/02_mar-psa-realistic.rds"))
 
-df_psa_des <- psa_des %>% 
+# 
+# df_psa_des <- psa_des %>% 
+#   map(~(.x %>% t() %>% tbl_df())) %>% 
+#   bind_rows() %>% 
+#   mutate(iteration = row_number()) %>% 
+#   mutate(qaly_reference = dQALY.ref,
+#          qaly_test = dQALY.test,
+#          cost_reference = dCOST.ref,
+#          cost_test = dCOST.test) %>% 
+#   select(iteration,contains("qaly_"),contains("cost_")) %>% 
+#   mutate(model = "Discrete Event Simulation")
+# 
+# df_psa_deq <- psa_deq %>% 
+#   map(~(.x %>% t() %>% tbl_df())) %>% 
+#   bind_rows() %>% 
+#   mutate(iteration = row_number()) %>% 
+#   mutate(qaly_reference = dQALY.ref,
+#          qaly_test = dQALY.test,
+#          cost_reference = dCOST.ref,
+#          cost_test = dCOST.test) %>% 
+#   select(iteration,contains("qaly_"),contains("cost_")) %>% 
+#   mutate(model = "Differential Equations")
+# 
+# df_psa_mar <- psa_mar %>% 
+#   map(~(.x %>% t() %>% tbl_df())) %>% 
+#   bind_rows() %>% 
+#   mutate(iteration = row_number()) %>% 
+#   mutate(qaly_reference = dQALY.ref,
+#          qaly_test = dQALY.test,
+#          cost_reference = dCOST.ref,
+#          cost_test = dCOST.test) %>% 
+#   select(iteration,contains("qaly_"),contains("cost_")) %>% 
+#   mutate(model = "Markov Cohort")
+# 
+# df_psa <- 
+#   df_psa_deq %>% 
+#   bind_rows(df_psa_des) %>% 
+#   bind_rows(df_psa_mar) %>% 
+#   mutate(diff_qaly = qaly_test - qaly_reference,
+#          diff_cost = cost_test - cost_reference) %>% 
+#   left_join(
+#     halton_draws %>% bind_rows() %>% mutate(iteration = row_number())
+#   )
+# 
+# df_psa %>% write_rds(here("output/psa/01_psa.rds")) 
+
+
+
+df_psa_des_realistic <- psa_des_realistic %>% 
   map(~(.x %>% t() %>% tbl_df())) %>% 
   bind_rows() %>% 
   mutate(iteration = row_number()) %>% 
@@ -158,7 +243,7 @@ df_psa_des <- psa_des %>%
   select(iteration,contains("qaly_"),contains("cost_")) %>% 
   mutate(model = "Discrete Event Simulation")
 
-df_psa_deq <- psa_deq %>% 
+df_psa_deq_realistic <- psa_deq_realistic %>% 
   map(~(.x %>% t() %>% tbl_df())) %>% 
   bind_rows() %>% 
   mutate(iteration = row_number()) %>% 
@@ -169,7 +254,7 @@ df_psa_deq <- psa_deq %>%
   select(iteration,contains("qaly_"),contains("cost_")) %>% 
   mutate(model = "Differential Equations")
 
-df_psa_mar <- psa_mar %>% 
+df_psa_mar_realistic <- psa_mar_realistic %>% 
   map(~(.x %>% t() %>% tbl_df())) %>% 
   bind_rows() %>% 
   mutate(iteration = row_number()) %>% 
@@ -180,20 +265,40 @@ df_psa_mar <- psa_mar %>%
   select(iteration,contains("qaly_"),contains("cost_")) %>% 
   mutate(model = "Markov Cohort")
 
-df_psa <- 
-  df_psa_deq %>% 
-  bind_rows(df_psa_des) %>% 
-  bind_rows(df_psa_mar) %>% 
+df_psa_realistic <- 
+  df_psa_deq_realistic %>% 
+  bind_rows(df_psa_des_realistic) %>% 
+  bind_rows(df_psa_mar_realistic) %>% 
   mutate(diff_qaly = qaly_test - qaly_reference,
          diff_cost = cost_test - cost_reference) %>% 
   left_join(
     halton_draws %>% bind_rows() %>% mutate(iteration = row_number())
   )
+
+df_psa_realistic %>% write_rds(here("output/psa/02_psa-realistic.rds")) 
+
 ```
 
 
 ```{r}
-df_psa %>% 
+df_psa <- read_rds(here("output/psa/02_psa-realistic.rds"))
+
+df_psa_long <- 
+  df_psa %>% 
+  select(iteration,
+         model, 
+         qaly_reference,
+         qaly_test,
+         cost_reference,
+         cost_test) %>% 
+  gather(measure,value,-iteration,-model) %>% 
+  separate(measure,into=c("measure","strategy")) %>% 
+  spread(measure,value) 
+```
+
+```{r}
+p_ce_plane <- 
+  df_psa %>% 
   ggplot(aes(x = diff_qaly, y = diff_cost, colour = model)) + 
   geom_point() + 
   geom_abline(slope = 100000, intercept = 0, lty = 2) + 
@@ -202,9 +307,77 @@ df_psa %>%
   geom_hline(aes(yintercept = 0)) + 
   geom_vline(aes(xintercept = 0)) +
   theme_minimal()
+
+direct.label(p_ce_plane,"smart.grid")
+```
+
+```{r}
+lambda_range <- unique(c(seq(0,1000,100),seq(1000,5000,500),seq(5000,30000,1000),seq(30000,300000,5000)))
+
+#lambda_range <- c(25000,50000,100000,150000)
+
+plan(multiprocess)
+df_ceac <- 
+  lambda_range %>% 
+    future_map(~(
+      df_psa_long %>% 
+        group_by(model) %>% 
+        mutate(nmb = as.numeric(paste0(.x)) * qaly - cost))) %>% 
+     magrittr::set_names(lambda_range) %>% 
+      bind_rows(.id = "lambda") %>% 
+      mutate(lambda = as.numeric(paste0(lambda))) %>% 
+      group_by(model, iteration,lambda) %>% 
+      mutate(max = max(nmb)) %>% 
+      mutate(max = as.integer(nmb==max))
+
+
+p_ceac <- 
+  df_ceac %>% 
+  group_by(lambda,strategy,model) %>% 
+  filter(model != "Markov Cohort") %>% 
+  summarise_at(vars(max),funs(mean)) %>% 
+  ggplot(aes(x = lambda, y= max)) + 
+  scale_x_continuous(labels = scales::comma) +
+  geom_line(aes(colour = strategy, lty = model)) + 
+  theme_minimal() + 
+  xlab("Willingness to Pay Threshold") + 
+  ylab("Pr(Cost Effective)") 
+
   
 ```
 
+```{r}
+
+plan(multiprocess)
+df_ceaf_cutpoints <- 
+  lambda_range %>% 
+    future_map(~(df_ceac %>% 
+    group_by(model,strategy,lambda) %>% 
+    mutate_at(vars(cost,qaly),funs(mean = mean)) %>% 
+    mutate(nmb = .x * qaly_mean - cost_mean) %>% 
+    ungroup() %>% 
+    select(-lambda))) %>% 
+    magrittr::set_names(lambda_range)  %>% 
+    bind_rows(.id="lambda") %>% 
+    mutate(lambda = as.numeric(paste0(lambda))) %>%
+    group_by(model, lambda) %>% 
+    mutate(max = as.integer(nmb == max(nmb))) %>% 
+    filter(max ==1) %>% 
+    select(model, lambda,strategy) %>% 
+    unique()  %>% 
+    mutate(optimal = 1)
+
+df_ceaf <- 
+  df_ceac%>% 
+  group_by(model,lambda,strategy) %>% 
+  summarise_at(vars(max),funs(mean)) %>% 
+  inner_join(df_ceaf_cutpoints,c("model","lambda","strategy"))  
+
+decision_error_range <- df_ceaf_cutpoints_deq %>% 
+  anti_join(df_ceaf_cutpoints_mar) %>% 
+  pull(lambda) %>% range()
+
+```
 
 
 
