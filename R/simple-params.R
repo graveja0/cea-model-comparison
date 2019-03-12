@@ -66,19 +66,17 @@ params <- list(
   p_g  = 0.2,                # Probability of genetic variant
   r_a_pct = 10,              # Percentage who develop condition.
   r_a_dur = 10,              # Condition indication rate duration (in years).
-  r_a  = inst_rate(.9999, 1e-7), # 10% Rate of A over a 10 year period
-  r_b_pct = 5,               # Adverse drug event percentage
-  r_b_dur = 5,               # Adverse drug event duration (in years). 
-  r_b  = inst_rate(0.05, 5), # 5% Rate of B over a 5 year period  
-  rr_b = 0.7,                # Reduced relative risk of B
+  r_b_pct = 10,               # Adverse drug event percentage
+  r_b_dur = 1,               # Adverse drug event duration (in years). 
+  rr_b = 0.8,                # Reduced relative risk of B
   
   # Costs
   c_a   = 10000,             # Cost of Event A
   c_bs  = 25000,             # Cost of Event B survival
-  c_bd  = 15000,             # Cost of Event B death
-  c_tx  = 0.5,               # Cost of normal treatment
-  c_alt = 2.75,                 # Cost of alternate treatment
-  c_t   = 100,               # Cost of test
+  c_bd  = 20000,             # Cost of Event B death
+  c_tx  = 0.25,               # Cost of normal treatment
+  c_alt = 5,                 # Cost of alternate treatment
+  c_t   = 200,               # Cost of test
   
   # Disutilities
   d_a   = 0.05,              # Disutility of A
@@ -88,6 +86,8 @@ params <- list(
   # Discounting
   disc  = 0.03               # Annual Discount Rate
 )
+params$r_a <- inst_rate(params$r_a_pct / 100, params$r_a_dur)
+params$r_b <- inst_rate(params$r_b_pct / 100, params$r_b_dur)
 
 params_psa <- list(
   # Controls for model execution
@@ -173,45 +173,6 @@ params_psa_realistic <- list(
 
 
 
-params_psa_test <- list(
-  # Controls for model execution
-  n          = function(x) qnorm(p = x, mean = params$n,sd =0),      # DES simulations to perform
-  resolution = function(x) qnorm(p = x, mean = params$resolution ,sd = 0),        # Diff Eq Time step for DEQ approach
-  interval   = function(x) qnorm(p = x, mean = params$interval, sd = 0),            # Markov Interval
-  horizon    = function(x) qnorm(p = x, mean = params$horizon, sd = 0),           # Time horizon of simulation
-  wtp        = function(x) qnorm(p = x, mean = params$wtp, sd = 0),       # Willingness to pay threshold
-  
-  # Gompertz model of secular death for 40yr female
-  # fit from 2012 social security data
-  shape   = function(x) qnorm(p = x, mean = params$shape, sd = 0), 
-  rate    = function(x) qnorm(p = x, mean = params$rate,sd = 0),
-  
-  # Probabilities and rates
-  p_o  = function(x) qnorm(p = x, mean = params$p_o, sd = 0),                # Probability of ordering test (overwritten by runs to 0 and 1)
-  p_bd = function(x) qnorm(p = x, mean = params$p_bd, sd = 0),  # Probability of death from B
-  p_g  = function(x) qnorm(p = x, mean = params$p_g, sd = 0),              # Probability of genetic variant
-  r_a = function(x) qnorm(p = x , mean = params$r_a, sd =0),
-  r_b  = function(x) qnorm(p = x, mean = params$r_b, sd = 0),# Inst Rate of B
-  #rr_b = function(x) qnorm(p = x, mean = params$rr_b, sd = 0),                # Reduced relative risk of B
-  rr_b = function(x) qunif(p = x, min = 0.5, max = 1), 
-  
-  # Costs
-  c_a   = function(x) qnorm(p = x, mean = params$c_a, sd = 0),              # Cost of Event A
-  c_bs  = function(x) qnorm(p = x, mean = params$c_bs, sd = 0),              # Cost of Event B survival
-  c_bd  = function(x) qnorm(p = x, mean = params$c_bd, sd = 0),             # Cost of Event B death
-  c_tx  = function(x) qunif(p = x, min = params$c_tx, max = params$c_tx),                 # Cost of normal treatment
-  #c_alt = function(x) qunif(p = x, min = params$c_alt, max = params$c_alt),                # Cost of alternate treatment
-  c_alt = function(x) qunif(p = x, min = 1, max = 4),
-  c_t   = function(x) qunif(p = x, min = params$c_t, max = params$c_t),               # Cost of test
-  
-  # Disutilities
-  d_a   = function(x) qnorm(p = x, mean = params$d_a, sd = 0),              # Disutility of A
-  d_at  = function(x) qnorm(p = x, mean = 1, sd = 0),                 # Duration of A in years.
-  d_b   = function(x) qnorm(p = x, mean = params$d_b, sd = 0),              # Disutility of B
-  
-  # Discounting
-  disc  = function(x) qnorm(p = x, mean = 0.03, sd = 0)               # Annual Discount Rate
-)
 
 
 

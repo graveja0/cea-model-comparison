@@ -9,9 +9,14 @@ editor_options:
 knitr::opts_chunk$set(echo = FALSE)
 knitr::opts_chunk$set(message = FALSE)
 knitr::opts_chunk$set(warning = FALSE)
+options("scipen" = 100, "digits" = 5)
 ```
 
 ```{r, message = FALSE, warning = FALSE}
+options(warnPartialMatchAttr = FALSE,
+        warnPartialMatchDollar = FALSE,
+        warnPartialMatchArgs = FALSE)
+
 library(tidyverse)
 library(directlabels)
 library(patchwork)
@@ -29,10 +34,14 @@ library(flexsurv)
 library(furrr)
 library(conflicted)
 library(tangram)
+library(furrr)
+library(microbenchmark)
+plan(multiprocess)
 source(here("R/plot-theme.R"))
 # conflicted::conflict_scout()
 # heemood and purrr: modify
 conflict_prefer("filter", "dplyr")
+conflict_prefer("set_names", "magrittr")
 ```
 
 ```{r, message = FALSE, echo = FALSE, warning = FALSE}
@@ -62,11 +71,45 @@ params %>% unlist() %>% data.frame() %>%
 # deq <- deq_simulation(params); set.seed(123)
 # mar <- markov_simulation(params); set.seed(123)
 
-set.seed(123)
-params$n = 100000
-icer_des <- des_icer(params); set.seed(123)
+
 icer_deq <- deq_icer(params); set.seed(123)
 icer_mar <- markov_icer(params); set.seed(123)
+
+params$n = 1e6
+set.seed(123)
+icer_des <- des_icer(params)
+```
+
+```{r}
+des_sample_sizes <- c(1e6,2e6,3e6,5e6,6e6,7e6,8e6,9e6,1e7)
+set.seed(123)
+icer_des_N <- 
+  des_sample_sizes %>% 
+  future_map(~(des_icer(params,N=.x) %>% t() %>% data.frame() %>% mutate(N = .x)))  %>% 
+  bind_rows()
+
+icer_des_N %>% 
+  filter(N>1e5) %>% 
+  ggplot(aes(x=N,y=NMB)) +
+  geom_point()  + 
+  theme_bw() + 
+  geom_hline(aes(yintercept = icer_deq["NMB"]),lty=2)+
+  geom_hline(aes(yintercept = icer_mar["NMB"]),lty=2,colour="red") +
+  ylab("ICER\n(Genotype vs. Reference)") + 
+  xlab("Number of Simulated DES Patients\n(millions)") + 
+  scale_x_continuous(breaks = des_sample_sizes, labels = des_sample_sizes/1000000) + 
+  annotate("text",y=icer_deq[["NMB"]],x=0,label = "DEQ: NMB",hjust=0) +
+  annotate("text",y=icer_mar[["NMB"]],x=0,label = "Markov: NMB",hjust=0,colour="red")
+ggsave(filename = here("figs/01_NMB-by-des-sample-size.png"),dpi = 300, scale =1,width = 12, height=12)
+```
+
+```{r}
+icer_des_N %>% 
+  mutate(error_dCOST.ref = dCOST.ref - icer_deq["dCOST.ref"],
+         error_dCOST.test = dCOST.test - icer_deq["dCOST.test"],
+         error_dQALY.ref = dQALY.ref - icer_deq["dQALY.ref"],
+         error_dQALY.test = dQALY.test - icer_deq["dQALY.test"]) %>% 
+  select(N, contains("error"))
 ```
 
 ## Base Case Results
@@ -108,6 +151,9 @@ base_case_result %>%
   set_colnames(c("Outcome","Model Type","No Testing (ref.)","Genetic Testing","Incremental")) %>% 
     tangram(., style="lancet", caption="Base Case Results",id = "base_case")
 ```
+
+
+## STOP HERE
 
 ## PSA 
 
@@ -280,7 +326,7 @@ df_psa_realistic %>% write_rds(here("output/psa/02_psa-realistic.rds"))
 ```
 
 
-```{r}
+```{r, eval = FALSE}
 df_psa <- read_rds(here("output/psa/02_psa-realistic.rds"))
 
 df_psa_long <- 
@@ -296,7 +342,7 @@ df_psa_long <-
   spread(measure,value) 
 ```
 
-```{r}
+```{r, eval = FALSE}
 p_ce_plane <- 
   df_psa %>% 
   ggplot(aes(x = diff_qaly, y = diff_cost, colour = model)) + 
@@ -311,7 +357,7 @@ p_ce_plane <-
 direct.label(p_ce_plane,"smart.grid")
 ```
 
-```{r}
+```{r, eval = FALSE}
 lambda_range <- unique(c(seq(0,1000,100),seq(1000,5000,500),seq(5000,30000,1000),seq(30000,300000,5000)))
 
 #lambda_range <- c(25000,50000,100000,150000)
@@ -346,7 +392,7 @@ p_ceac <-
   
 ```
 
-```{r}
+```{r, eval = FALSE}
 
 plan(multiprocess)
 df_ceaf_cutpoints <- 

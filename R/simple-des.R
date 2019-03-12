@@ -1,17 +1,19 @@
 
 # Perform all random draws in the manner of Discrete Event Simulation
 # This can be done without larger frameworks due to simplicity of model
-des_simulation <- function(params)
+des_simulation <- function(params, N = NULL)
 {
+  if (!is.null(N)) params$n <- N
+  
   with(params, {
     x <- data.frame(
-      name          = paste0("patient",1:n),
+      name          = 1:n, #paste0("patient",1:n),
       variant       = sample(c(TRUE, FALSE), size=n, replace=TRUE, prob=c(p_g, 1-p_g)),
       secular_death = rgompertz(n, shape, rate)*365,
       indication    = rexp(n, r_a / 365)
     )
     
-
+    
     x$secular_death[x$secular_death > horizon*365] <- NA
     x$indication[x$indication > horizon*365]       <- NA
     x$indication[x$secular_death < x$indication]   <- NA
@@ -61,32 +63,33 @@ disum <- function(disc, A, B) sum(discount_int(disc, A, B), na.rm=TRUE)
 # Each value is a time of event in units of days (365 per year)
 ddsum <- function(x, drate) sum(1 / ((1 + drate)^(x/365)), na.rm=TRUE)
 
-des_summary <- function(df, params)
+des_summary <- function(df, params,N = NULL)
 {
+  if (!is.null(N)) params$n = N
   with(c(df, params), {
     # Testing costs
     test.cost  <- c_t  * ddsum(indication[tested], disc)
     treat.cost <- c_a  * ddsum(indication, disc) + 
-                  c_bs * ddsum(adverse[is.na(adverse_death)], disc) +
-                  c_bd * ddsum(adverse_death, disc) 
-
+      c_bs * ddsum(adverse[is.na(adverse_death)], disc) +
+      c_bd * ddsum(adverse_death, disc) 
+    
     pri <- !is.na(treat) & treat=="Primary"
     alt <- !is.na(treat) & treat=="Alternate"
     drug.cost <- c_tx *disum(disc, indication[pri], end_of_sim[pri]) +
-                 c_alt*disum(disc, indication[alt], end_of_sim[alt])
-
+      c_alt*disum(disc, indication[alt], end_of_sim[alt])
+    
     # Total living in model
     life <- (n - sum(!is.na(death)))
-
+    
     # Total possible discounted life units is integral of discounted time
     pQALY <- disum(disc, 0, end_of_sim) / 365
- 
+    
     # Temp disutility of Indication
     disA   <- d_a*disum(disc, indication, cutoff) / 365
     
     # Permanent disutility for Event
     disB   <- d_b*disum(disc, adverse, end_of_sim) / 365
-
+    
     c(dCOST       = unname(treat.cost+test.cost+drug.cost),
       dQALY       = unname(pQALY-disA-disB),
       possible    = unname(pQALY),
@@ -97,18 +100,18 @@ des_summary <- function(df, params)
       dCOST.test  = unname(test.cost),
       dCOST.drug  = unname(drug.cost),
       dCOST.treat = unname(treat.cost)
-      )/n
+    )/n
   })
 }
 
-des_icer <- function(params, reference=NULL, genotype=NULL)
+des_icer <- function(params, reference=NULL, genotype=NULL, N = NULL)
 {
   params$p_o <- 0.0 # No testing, reference
-  reference <- des_summary(if(is.null(reference)) des_simulation(params) else reference, params)
-           
+  reference <- des_summary(if(is.null(reference)) des_simulation(params,N=N) else reference, params,N=N)
+  
   params$p_o <- 1.0 # Genotype testing upon indication
-  genotype   <- des_summary(if(is.null(genotype)) des_simulation(params) else genotype, params)
-
+  genotype   <- des_summary(if(is.null(genotype)) des_simulation(params,N=N) else genotype, params,N=N)
+  
   c( ICER       = unname((genotype['dCOST'] - reference['dCOST']) / (genotype['dQALY'] - reference['dQALY'])),
      NMB        = unname((reference['dCOST'] - genotype['dCOST']) + params$wtp*(genotype['dQALY'] - reference['dQALY'])),
      dCOST.ref  = unname(reference['dCOST']),
