@@ -81,7 +81,7 @@ icer_des <- des_icer(params)
 ```
 
 ```{r}
-des_sample_sizes <- c(1e6,2e6,3e6,5e6,6e6,7e6,8e6,9e6,1e7)
+des_sample_sizes <- c(1e6,2e6,3e6,5e6,6e6,7e6,8e6,9e6,1e7,2e7)
 set.seed(123)
 icer_des_N <- 
   des_sample_sizes %>% 
@@ -95,7 +95,7 @@ icer_des_N %>%
   theme_bw() + 
   geom_hline(aes(yintercept = icer_deq["NMB"]),lty=2)+
   geom_hline(aes(yintercept = icer_mar["NMB"]),lty=2,colour="red") +
-  ylab("ICER\n(Genotype vs. Reference)") + 
+  ylab("NMB\n(Genotype vs. Reference)") + 
   xlab("Number of Simulated DES Patients\n(millions)") + 
   scale_x_continuous(breaks = des_sample_sizes, labels = des_sample_sizes/1000000) + 
   annotate("text",y=icer_deq[["NMB"]],x=0,label = "DEQ: NMB",hjust=0) +
