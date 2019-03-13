@@ -104,11 +104,13 @@ des_summary <- function(df, params,N = NULL)
   })
 }
 
-des_icer <- function(params, reference=NULL, genotype=NULL, N = NULL)
+des_icer <- function(params, reference=NULL, genotype=NULL, N = NULL, seed=123)
 {
+  set.seed(seed)
   params$p_o <- 0.0 # No testing, reference
   reference <- des_summary(if(is.null(reference)) des_simulation(params,N=N) else reference, params,N=N)
   
+  set.seed(seed)
   params$p_o <- 1.0 # Genotype testing upon indication
   genotype   <- des_summary(if(is.null(genotype)) des_simulation(params,N=N) else genotype, params,N=N)
   
