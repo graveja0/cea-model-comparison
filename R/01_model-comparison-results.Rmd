@@ -65,41 +65,41 @@ params %>% unlist() %>% data.frame() %>%
   tangram(., as.character=TRUE, style="lancet", caption="Model Parameters",id = "params")
 ```
 
-```{r, eval = TRUE, cache = TRUE}
+```{r, eval = TRUE, cache = FALSE}
 # set.seed(123)
 # des <- des_simulation(params); set.seed(123)
 # deq <- deq_simulation(params); set.seed(123)
 # mar <- markov_simulation(params); set.seed(123)
 
 
-icer_deq <- deq_icer(params); set.seed(123)
-icer_mar <- markov_icer(params); set.seed(123)
+icer_deq <- deq_icer(params)
+icer_mar <- markov_icer(params)
 
 params$n = 1e6
-set.seed(123)
 icer_des <- des_icer(params)
 ```
 
 ```{r}
-des_sample_sizes <- c(1e6,2e6,3e6,5e6,6e6,7e6,8e6,9e6,1e7)
-set.seed(123)
+#des_sample_sizes <- c(1e6,2e6,3e6,5e6,6e6,7e6,8e6,9e6,1e7)
+des_sample_sizes <- 10^c(2, 2.25, 2.5, 2.75, 3, 3.25, 3.5, 3.75, 4, 4.25, 4.5, 4.75, 5, 5.25, 5.5, 5.75, 6, 6.25, 6.5, 6.75, 7)
+#set.seed(123)
 icer_des_N <- 
   des_sample_sizes %>% 
-  future_map(~(des_icer(params,N=.x) %>% t() %>% data.frame() %>% mutate(N = .x)))  %>% 
+  future_map(~(des_icer(params,seed=123,N=.x) %>% t() %>% data.frame() %>% mutate(N = .x)))  %>% 
   bind_rows()
 
 icer_des_N %>% 
-  filter(N>1e5) %>% 
+  #filter(N>1e5) %>% 
   ggplot(aes(x=N,y=NMB)) +
   geom_point()  + 
   theme_bw() + 
   geom_hline(aes(yintercept = icer_deq["NMB"]),lty=2)+
   geom_hline(aes(yintercept = icer_mar["NMB"]),lty=2,colour="red") +
   ylab("ICER\n(Genotype vs. Reference)") + 
-  xlab("Number of Simulated DES Patients\n(millions)") + 
-  scale_x_continuous(breaks = des_sample_sizes, labels = des_sample_sizes/1000000) + 
-  annotate("text",y=icer_deq[["NMB"]],x=0,label = "DEQ: NMB",hjust=0) +
-  annotate("text",y=icer_mar[["NMB"]],x=0,label = "Markov: NMB",hjust=0,colour="red")
+  xlab("Number of Simulated DES Patients\n(log10)") + 
+  scale_x_continuous(breaks = des_sample_sizes, labels = log10(des_sample_sizes), trans="log10") + 
+  annotate("text",y=icer_deq[["NMB"]],x=1e3,label = "DEQ: NMB",hjust=0) +
+  annotate("text",y=icer_mar[["NMB"]],x=10^2,label = "Markov: NMB",hjust=0,colour="red")
 ggsave(filename = here("figs/01_NMB-by-des-sample-size.png"),dpi = 300, scale =1,width = 12, height=12)
 ```
 
