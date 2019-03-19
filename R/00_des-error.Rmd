@@ -1,0 +1,89 @@
+---
+title: "DES Error"
+author: "Shawn Garbett"
+date: "March 19, 2019"
+output: html_document
+---
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(message = FALSE)
+knitr::opts_chunk$set(warning = FALSE)
+options("scipen" = 100, "digits" = 5)
+```
+
+```{r, message = FALSE, warning = FALSE}
+options(warnPartialMatchAttr = FALSE,
+        warnPartialMatchDollar = FALSE,
+        warnPartialMatchArgs = FALSE)
+
+library(tidyverse)
+library(directlabels)
+library(patchwork)
+library(rlang)
+library(randtoolbox)
+library(microbenchmark)
+library(progress)
+library(here)
+library(fs)
+library(deSolve)
+library(heemod)
+library(dplyr)
+library(purrr)
+library(flexsurv)
+library(furrr)
+library(conflicted)
+library(tangram)
+library(furrr)
+library(microbenchmark)
+plan(multiprocess)
+source(here("R/plot-theme.R"))
+# conflicted::conflict_scout()
+# heemood and purrr: modify
+conflict_prefer("filter", "dplyr")
+conflict_prefer("set_names", "magrittr")
+```
+
+```{r, message = FALSE, echo = FALSE, warning = FALSE}
+# Load modeling code
+source(here("R/simple-params.R"))
+source(here("R/simple-des.R"))
+source(here("R/simple-deq.R"))
+source(here("R/simple-markov.R"))
+```
+
+
+```{r, eval = TRUE, cache = FALSE}
+icer_deq <- deq_icer(params)
+icer_mar <- markov_icer(params)
+
+params$n = 1e6
+icer_des <- des_icer(params)
+```
+
+```{r}
+des_sample_sizes <- round(10^c(2, 2.25, 2.5, 2.75, 3, 3.25, 3.5, 3.75, 4, 4.25, 4.5, 4.75, 5, 5.25, 5.5, 5.75, 6, 6.25, 6.5, 6.75, 7))
+
+icer_des_N <- do.call("rbind", lapply(123:133, function(seed) {
+  des_sample_sizes %>% 
+  future_map(~(des_icer(params,seed=seed,N=.x) %>% t() %>% data.frame() %>% mutate(N = .x, seed=seed)))  %>% 
+  bind_rows()
+}))
+
+labels <- log10(des_sample_sizes)
+labels[(labels - floor(labels)) != 0] <- ""
+
+icer_des_N %>% 
+  ggplot(aes(x=N,y=NMB)) +
+  geom_point()  + 
+  theme_bw() + 
+  geom_hline(aes(yintercept = icer_deq["NMB"]),lty=2)+
+  geom_hline(aes(yintercept = icer_mar["NMB"]),lty=2,colour="red") +
+  ylab("ICER\n(Genotype vs. Reference)") + 
+  xlab("Number of Simulated DES Patients\n(log10)") + 
+  scale_x_continuous(breaks = des_sample_sizes, labels =labels, trans="log10") + 
+  annotate("text",y=icer_deq[["NMB"]],x=1e3,label = "DEQ: NMB",hjust=0) +
+  annotate("text",y=icer_mar[["NMB"]],x=10^2,label = "Markov: NMB",hjust=0,colour="red")
+ggsave(filename = here("figs/01_NMB-by-des-sample-size.png"),dpi = 300, scale =1,width = 12, height=12)
+
+save(icer_des_N, des_sample_sizes, file="output/icer_des_N.Rda")
+```
