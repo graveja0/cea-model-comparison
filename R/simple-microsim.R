@@ -46,24 +46,30 @@ gompertz_ratio2 <- function(t, interval, shape, rate) # p.sd for each step
 
 # Event draw function:
 # looks up probability of transition
-ProbsE <- function(M_t,v.drug,t,p.a,p.b,rr.b,p.bd,p.sd){
+ProbsE <- function(M_t,v.drug,t,p.a,p.b,rr.b,p.bd,p.sd,interval){
   # M_t    :    current health state
   # t    :  cycle
   # v.drug :    treatment
   p.die.base <- p.sd[t]
   p <- matrix(0,nrow=length(M_t),ncol=4,dimnames=list(c(),c("A","BS","BD","D")))
   
-  #cap probs to match markov version: is it appropriate????
-  if(p.die.base+p.a>1) {p.a <- 1-p.die.base}
-  if(p.die.base+p.b>1) {p.b <- 1-p.die.base}
+  #not sure about using this heemod func
+  library(heemod)
+  pp.a <- rate_to_prob(r=p.a,to=1/interval)
+  pp.b <- rate_to_prob(r=p.b,to=1/interval)
   
-  p[M_t == "H","A"] <- p.a
+  #cap probs to match markov version: is it appropriate???? does not matter until cycle 80
+  if(p.die.base+pp.a>1) {pp.a <- 1-p.die.base}
+  if(p.die.base+pp.b>1) {pp.b <- 1-p.die.base}
+  
+  
+  p[M_t == "H","A"] <- pp.a
   p[M_t == "A","BS"]  <- ifelse(v.drug[M_t == "A"]=="Alternate", 
-                                p.b*rr.b*(1-p.bd),
-                                p.b*(1-p.bd))
+                                pp.b*rr.b*(1-p.bd),
+                                pp.b*(1-p.bd))
   p[M_t == "A","BD"]  <- ifelse(v.drug[M_t == "A"]=="Alternate", 
-                                p.b*rr.b*p.bd,
-                                p.b*p.bd)
+                                pp.b*rr.b*p.bd,
+                                pp.b*p.bd)
   p[M_t == "H","D"] <- p[M_t == "A","D"] <- p[M_t == "BS","D"] <- p.die.base
   return(p)
 }
@@ -106,7 +112,7 @@ microsim_run <- function(params, N = NULL) {
       # Default Update: if no events occur, health state remains unchanged
       m.M[,t+1] = m.M[,t]
       # Progression of illness 
-      p <- ProbsE(m.M[,t],df.Pop$treat,t,r_a,r_b,rr_b,p_bd,p.HD)
+      p <- ProbsE(m.M[,t],df.Pop$treat,t,r_a,r_b,rr_b,p_bd,p.HD,interval)
       # note: if someone died this cycle, they can't experience other events
       draw.event <- rbinom(n=n.i,size=1,prob=rowSums(p))
       if(sum(draw.event)>0) { # if at least one person has a event
