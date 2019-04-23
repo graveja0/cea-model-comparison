@@ -85,13 +85,20 @@ load(file=here("output/icer_des_N.Rda"))
 labels <- log10(des_sample_sizes)
 labels[(labels - floor(labels)) != 0] <- ""
 
+#des_sample_sizes <- 10^c(2, 2.25, 2.5, 2.75, 3, 3.25, 3.5, 3.75, 4, 4.25, 4.5, 4.75, 5, 5.25, 5.5, 5.75, 6, 6.25, 6.5, 6.75, 7)
+
+#icer_des_N <- 
+#  des_sample_sizes %>% 
+#  future_map(~(des_icer(params,seed=123,N=.x) %>% t() %>% data.frame() %>% mutate(N = .x)))  %>% 
+#  bind_rows()
+
 icer_des_N %>% 
   ggplot(aes(x=N,y=NMB)) +
   geom_point()  + 
   theme_bw() + 
   geom_hline(aes(yintercept = icer_deq["NMB"]),lty=2)+
   geom_hline(aes(yintercept = icer_mar["NMB"]),lty=2,colour="red") +
-  ylab("ICER\n(Genotype vs. Reference)") + 
+  ylab("NMB\n(Genotype vs. Reference)") + 
   xlab("Number of Simulated DES Patients\n(log10)") + 
   scale_x_continuous(breaks = des_sample_sizes, labels =labels, trans="log10") + 
   annotate("text",y=icer_deq[["NMB"]],x=1e3,label = "DEQ: NMB",hjust=0) +
