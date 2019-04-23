@@ -46,19 +46,30 @@ gompertz_ratio2 <- function(t, interval, shape, rate) # p.sd for each step
 
 # Event draw function:
 # looks up probability of transition
-ProbsE <- function(M_t,v.drug,t,p.a,p.b,rr.b,p.bd,p.sd){
+ProbsE <- function(M_t,v.drug,t,p.a,p.b,rr.b,p.bd,p.sd,interval){
   # M_t    :    current health state
   # t    :  cycle
   # v.drug :    treatment
   p.die.base <- p.sd[t]
   p <- matrix(0,nrow=length(M_t),ncol=4,dimnames=list(c(),c("A","BS","BD","D")))
-  p[M_t == "H","A"] <- p.a
+  
+  #not sure about using this heemod func
+  library(heemod)
+  pp.a <- rate_to_prob(r=p.a,to=1/interval)
+  pp.b <- rate_to_prob(r=p.b,to=1/interval)
+  
+  #cap probs to match markov version: is it appropriate???? does not matter until cycle 80
+  if(p.die.base+pp.a>1) {pp.a <- 1-p.die.base}
+  if(p.die.base+pp.b>1) {pp.b <- 1-p.die.base}
+  
+  
+  p[M_t == "H","A"] <- pp.a
   p[M_t == "A","BS"]  <- ifelse(v.drug[M_t == "A"]=="Alternate", 
-                                p.b*rr.b*(1-p.bd),
-                                p.b*(1-p.bd))
+                                pp.b*rr.b*(1-p.bd),
+                                pp.b*(1-p.bd))
   p[M_t == "A","BD"]  <- ifelse(v.drug[M_t == "A"]=="Alternate", 
-                                p.b*rr.b*p.bd,
-                                p.b*p.bd)
+                                pp.b*rr.b*p.bd,
+                                pp.b*p.bd)
   p[M_t == "H","D"] <- p[M_t == "A","D"] <- p[M_t == "BS","D"] <- p.die.base
   return(p)
 }
@@ -101,7 +112,7 @@ microsim_run <- function(params, N = NULL) {
       # Default Update: if no events occur, health state remains unchanged
       m.M[,t+1] = m.M[,t]
       # Progression of illness 
-      p <- ProbsE(m.M[,t],df.Pop$treat,t,r_a,r_b,rr_b,p_bd,p.HD)
+      p <- ProbsE(m.M[,t],df.Pop$treat,t,r_a,r_b,rr_b,p_bd,p.HD,interval)
       # note: if someone died this cycle, they can't experience other events
       draw.event <- rbinom(n=n.i,size=1,prob=rowSums(p))
       if(sum(draw.event)>0) { # if at least one person has a event
@@ -120,24 +131,24 @@ microsim_run <- function(params, N = NULL) {
     
     ### reframe results to feed des summary functions
     re <- df.Pop %>% arrange(name)
-    mm <- data.frame(m.M) %>% mutate(name=as.integer(rownames(.))) %>% 
+    mm <- data.frame(m.M) %>% mutate(name=as.integer(rownames(.))) %>%
       gather("cycle","state",starts_with("cycle")) %>% mutate(cycle=as.integer(str_replace(cycle,"cycle.",""))) %>%
-      arrange(name,cycle) 
-    
+      arrange(name,cycle)
+
     re$secular_death <- find_time(mm,"D",n.i)
     re$indication <- find_time(mm,"A",n.i)
     re$adverse <- find_time(mm,c("BS","BD"),n.i)
     re$adverse_death <- find_time(mm,"BD",n.i)
-    
+
     re$death <- re$secular_death
     re$death[!is.na(re$adverse_death)] <- re$adverse_death[!is.na(re$adverse_death)]
-    
+
     re$end_of_sim <- re$death
-    re$end_of_sim[is.na(re$end_of_sim)] <- n.t
+    re$end_of_sim[is.na(re$end_of_sim)] <- n.t+1
     re$cutoff <- re$indication + d_at
     re$cutoff <- ifelse(!is.na(re$cutoff) & !is.na(re$adverse) & re$adverse < re$cutoff, re$adverse, re$cutoff)
     re$cutoff <- ifelse(!is.na(re$cutoff) & !is.na(re$secular_death) & re$secular_death < re$cutoff, re$secular_death, re$cutoff)
-    re$cutoff[re$cutoff > n.t] <- n.t
+    re$cutoff[re$cutoff > n.t] <- n.t+1
     
     return(list(raw=m.M,results=re))
   })   
@@ -156,10 +167,13 @@ find_time <- function(dt,st,n.i) {
 
 
 ####03 Post-sim summary####
+
+
 # Discounted integral from A to B at annual rate ar of discounting
 discount_int2 <- function(dr, A, B)
 {
-  (exp(-dr*A)-exp(-dr*B)) / dr
+  q <- 1/(1+dr)
+  (q^(A-1)-q^(B-1))/(1-q)
 }
 
 # Discounted Integral over interval
@@ -170,7 +184,7 @@ disum2 <- function(dr, A, B) {
 # Discounted Discrete sum (aka single event discounting)
 # Each value is a time of event in units of days (365 per year)
 ddsum2 <- function(dr,A) {
-  sum(1 / ((1 + dr)^A), na.rm=TRUE)
+  sum(1 / ((1 + dr)^(A-1)), na.rm=TRUE)
 }
 
 microsim_summary <- function(df, params, N = NULL)
@@ -188,6 +202,7 @@ microsim_summary <- function(df, params, N = NULL)
     
     pri <- !is.na(treat) & treat=="Primary"
     alt <- !is.na(treat) & treat=="Alternate"
+    
     drug.cost <- sum(c_tx*365*disum2(disc, indication[pri], end_of_sim[pri]),
                      c_alt*365*disum2(disc, indication[alt], end_of_sim[alt]))
     
@@ -195,7 +210,7 @@ microsim_summary <- function(df, params, N = NULL)
     life <- (n - sum(!is.na(death)))
     
     # Total possible discounted life units is integral of discounted time
-    pQALY <- disum2(disc, 0, end_of_sim) / interval
+    pQALY <- disum2(disc, 1, end_of_sim) / interval
     
     # Temp disutility of Indication
     disA   <- d_a*disum2(disc, indication, cutoff) / interval
@@ -238,17 +253,30 @@ microsim_icer <- function(params, reference=NULL, genotype=NULL, N = NULL, seed=
 }
 
 # ### compare to Markov ###
-# params$n = 10000
-# library(heemod)
-# source("./R/simple-markov.R")
-# ### icer 
-# microsim_icer(params)
-# markov_icer(params)
-# ### event
-# #compare testing strategy
+# params$n = 1000
+library(heemod)
+source("./R/simple-markov.R")
+# ### icer
+# icer_micro <- microsim_icer(params)
+# icer_mark <- markov_icer(params)
+
+# micro_comp <- vector("list",5)
+# mark_comp <- vector("list",5)
+# ss <- c(32,532,13,3267,8098)
+# for(s in 1:5) {
+#   set.seed(ss[s])
+#   micro_comp[[s]] <- microsim_icer(params)
+#   mark_comp[[s]] <- markov_icer(params)
+# }
+
+
+### event
+#compare testing strategy
+# params$n = 1000000
+# params$p_o = 1
 # micro <- microsim_run(params)
 # mak <- markov_simulation(params)
-# comp <-  mak$combined_model$eval_strategy_list$genotype$counts %>% mutate(cycle=as.integer(rownames(.)))
+# comp <-  mak$combined_model$eval_strategy_list$reference$counts %>% mutate(cycle=as.integer(rownames(.)))
 # c2 <-  micro$raw %>% data.frame() %>% gather() %>% count(key,value)
 # c2 <- c2 %>% spread(value,n) %>% mutate(key=as.integer(str_replace(key,"cycle.",""))) %>% arrange(key) %>% rename(cycle=key)
 # c3 <- c2[-1,] %>% replace_na(list(A=0,BS=0,BD=0,D=0))
@@ -257,3 +285,7 @@ microsim_icer <- function(params, reference=NULL, genotype=NULL, N = NULL, seed=
 #   c3 %>% gather("state","ct",-cycle) %>% mutate(model="micro",ct=ct/params$n*1000)
 # )
 # ggplot(dt,aes(x=cycle)) + geom_line(aes(y=ct,group=state,color=state)) + facet_grid(~model) + theme_bw()
+# 
+# ### life-table method: I think microsim current version is like beginning methods ###
+# ck <- dt %>% spread(model,ct) %>% mutate(dd=mark-micro)
+# ggplot(ck,aes(x=cycle)) + geom_line(aes(y=dd,group=state,color=state)) + theme_bw()
