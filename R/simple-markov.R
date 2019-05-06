@@ -97,7 +97,7 @@ markov_simulation <- function(params)
     living   = 1,
     possible = discount(1/params$interval, dr),
     fatal_b  = 0,
-    cost_g   = discount(ifelse(state_time==1,costTest,0), dr),
+    cost_g   = discount(dispatch_strategy(reference=0,genotype=ifelse(state_time==1,costTest,0)), dr),
     cost_d   = discount(dispatch_strategy(reference=costDrug,genotype=cDgenotype), dr),
     cost_tx  = discount(ifelse(state_time==1,costA,0), dr),
     dis_a    = discount(ifelse(state_time<=params$interval*params$d_at,disuA,0), dr),
