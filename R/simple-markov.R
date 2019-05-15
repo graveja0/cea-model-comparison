@@ -18,7 +18,7 @@ markov_simulation <- function(params)
     disuA    = params$d_a/params$interval,
     costDrug = 365*params$c_tx/params$interval,
     costAlt  = 365*params$c_alt/params$interval,
-    costTest = params$p_o * params$c_t,
+
     costBS   = params$c_bs,
     disuB    = params$d_b/params$interval,
     costBD   = params$c_bd,
@@ -35,11 +35,14 @@ markov_simulation <- function(params)
     pBS = pB*(1-fatalB),
     pBD = pB*fatalB,
     
+    #only matters to weight genotype strategy with behavioral parameter
     gene = 1, #0 or 1
-    rr = map_dbl(gene, function(x) ifelse(x==0, 1, params$rr_b)),
+    test = 1, #0 or 1, whether to test under genotype scenario
+    rr = map2_dbl(gene,test, function(x,y) ifelse(x==1 & y==1, params$rr_b, 1)),
     
     #just for genotype strategy
-    cDgenotype = map_dbl(gene, function(x) ifelse(x==0,costDrug,costAlt))
+    cDgenotype = map2_dbl(gene, test, function(x,y) ifelse(x==1 & y==1,costAlt,costDrug)),
+    costTest = map_dbl(test, function(x) ifelse(x==1, params$c_t, 0))
   )
   
   #transition matrix
@@ -195,8 +198,12 @@ markov_simulation <- function(params)
     method="life-table"  # WTF? This should be called "trapezoidal" and better should be alternate simpsons extended!
   )
   
-  ### add gene prevalence
-  pop   <- data.frame(gene=c(0,1), .weights=c(100-params$p_g*100,params$p_g*100))
+  ### add gene prevalence and whether to test under genetype scenario
+  o <- params$p_o
+  g <- params$p_g
+  wt <- c((1-g)*(1-o),g*o,g*(1-o),(1-g)*o)
+  
+  pop   <- data.frame(gene=c(0,1,1,0),test=c(0,1,0,1),.weights=wt*100)
   res_h <- update(res_mod, newdata = pop)
   
   res_h
