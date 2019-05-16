@@ -211,7 +211,7 @@ microsim_run <- function(params, N = NULL, method="beginning") {
     if(nrow(pop.none)>0) {
       m.test.none <- mm %>% filter(name %in% pop.none$name) %>% group_by(cycle) %>% count(state) %>%
         spread(state,n) %>% merge(zerocol,all=TRUE) %>% replace(is.na(.),0) %>% 
-        select_at(c("cycle",v.n)) %>% ltm(method=method)
+        select_at(c("cycle",v.n)) %>% arrange(cycle) %>% ltm(method=method)
       
       m1 <- m.test.none[,-1] %>% as.matrix()
       dd <- c_tx*365/interval
@@ -228,7 +228,7 @@ microsim_run <- function(params, N = NULL, method="beginning") {
     if(nrow(pop.test.prim)>0) {
       m.test.prim <- mm %>% filter(name %in% pop.test.prim$name) %>% group_by(cycle) %>% count(state) %>%
         spread(state,n) %>% merge(zerocol,all=TRUE) %>% replace(is.na(.),0) %>% 
-        select_at(c("cycle",v.n)) %>% ltm(method=method)
+        select_at(c("cycle",v.n)) %>% arrange(cycle) %>% ltm(method=method)
       m2 <- m.test.prim[,-1] %>% as.matrix()
       dd <- c_tx*365/interval
       cc[[2]] <- m2 %*% c(0,c_a+dd+c_t,rep(dd,d_at*interval),c_bs+dd,dd,c_bd,0,0)
@@ -243,7 +243,7 @@ microsim_run <- function(params, N = NULL, method="beginning") {
     if(nrow(pop.test.alt)>0) {
       m.test.alt <- mm %>% filter(name %in% pop.test.alt$name) %>% group_by(cycle) %>% count(state) %>%
         spread(state,n) %>% merge(zerocol,all=TRUE) %>% 
-        replace(is.na(.),0) %>% select_at(c("cycle",v.n)) %>% ltm(method=method)
+        replace(is.na(.),0) %>% select_at(c("cycle",v.n)) %>% arrange(cycle) %>% ltm(method=method)
       
       m3 <- m.test.alt[,-1] %>% as.matrix()
       dd <- c_alt*365/interval
@@ -265,7 +265,7 @@ microsim_run <- function(params, N = NULL, method="beginning") {
     possible <- mmm %*% c(1,rep(1,d_at*interval+1),1,1,0,0,0)
     possible <-  as.vector(possible) * v.dwe
     fatal_b <- all[n.t,c("BD1","BD2")] %>% sum()
-    living <- n.i - all[n.t,c("BD1","BD2","D")] %>% sum()
+    living <- sum(n.i - rowSums(all[c("BD1","BD2","D")]))
     disutil_a <- mmm  %*% c(0,rep(d_a,d_at*interval),0,0,0,0,0,0)
     disutil_a <- as.vector(disutil_a) * v.dwe
     disutil_b <- mmm  %*% c(0,rep(0,d_at*interval+1),d_b,d_b,0,0,0)
