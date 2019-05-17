@@ -298,7 +298,7 @@ microsim_run <- function(params, N = NULL, method="beginning") {
 }
 
 
-microsim_icer <- function(params, reference=NULL, genotype=NULL, seed=123, method="life-table")
+microsim_icer <- function(params, reference=NULL, genotype=NULL, seed=123, method="life-table",...)
 {
   set.seed(seed)
   params$p_o <- 0.0 # No testing, reference
