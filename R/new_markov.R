@@ -1,5 +1,5 @@
-# library(tidyverse)
-# library(flexsurv)
+library(tidyverse)
+library(flexsurv)
 
 #### 01 Inputs ####
 source("./simple-params.R")
@@ -17,7 +17,7 @@ gompertz_ratio2 <- function(t, interval, shape, rate) # p.sd for each step
 rate_to_prob <- function(r, to = 1, per = 1) {
         r <- r / per
         1 - exp(- r * to)
-}
+} # from heemod pkg code
 
 # Once secular death mortablity reaches 1, all other probs need to put 0, no effect for default 40-year time horizon
 cap_max <- function(value,sd) ifelse(value+sd>1,1-sd,value)
