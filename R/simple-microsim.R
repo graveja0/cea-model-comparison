@@ -1,7 +1,5 @@
-library(data.table)
 library(tidyverse)
 library(flexsurv)
-library(heemod)
 
 #### 01 inputs ####
 source("./R/simple-params.R")
@@ -31,8 +29,11 @@ samplev <- function (probs, m) {
   }
   ran
 }
-### from workshop code ###
 
+rate_to_prob <- function(r, to = 1, per = 1) {
+  r <- r / per
+  1 - exp(- r * to)
+} # from heemod pkg code
 
 gompertz_ratio2 <- function(t, interval, shape, rate) # p.sd for each step
 {
@@ -134,6 +135,10 @@ microsim_run <- function(params, N = NULL, method="beginning") {
     
     m.M[, 1] <- v.M_Init         # initial health state for all individuals
     
+    # a.P <- array(0,                                          # track probs for validation
+    #              dim = c(n.i, 4, n.t),
+    #              dimnames = list(c(), c("A1","BS1","BD1","D"), 1:n.t))
+    
     # Time for-loop from cycle 1 through n.t
     for (t in 1:n.t) {
       
@@ -146,6 +151,7 @@ microsim_run <- function(params, N = NULL, method="beginning") {
       if(sum(fromH)>0) {
         pH <- ProbsH(m.M[,t][fromH],t,r_a,p.HD,interval)
         m.M[,t+1][fromH] <- draw.events(m.M[,t][fromH],pH)
+        #a.P[fromH,c("A1","D"),t] <- pH
         
         # assign treatment upon indication
         elig <- (m.M[,t]=="H" & m.M[,t+1]=="A1")
@@ -167,6 +173,7 @@ microsim_run <- function(params, N = NULL, method="beginning") {
           drawA[intunnel][ttunnel<=d_at*interval] <- paste0("A",ttunnel[ttunnel<=d_at*interval]+1)
         }
         m.M[,t+1][fromA] <- drawA
+        #a.P[fromA,c("BS1","BD1","D"),t] <- pA
       }
       
       # From BS
@@ -176,6 +183,8 @@ microsim_run <- function(params, N = NULL, method="beginning") {
         drawBS <- rbinom(n=length(pBS),size=1,prob=pBS)
         m.M[,t+1][fromBS][drawBS==1] <- "D"
         m.M[,t+1][fromBS][drawBS==0] <- "BS2"
+        
+        #a.P[fromBS,"D",t] <- pBS
       }
       
       # From BD
@@ -273,7 +282,7 @@ microsim_run <- function(params, N = NULL, method="beginning") {
     c.treat <- mmm  %*% c(0,c_a,rep(0,d_at*interval),c_bs,0,c_bd,0,0)
     c.treat <-  as.vector(c.treat) * v.dwc
     
-    return(list(raw=m.M,pop=df.Pop,count=all,
+    return(list(raw=m.M,pop=df.Pop,count=all, #a.P=a.P,
                 results=                c(dCOST       = sum(unlist(cc)),
                                           dQALY       = sum(unlist(ee)),
                                           possible    = sum(unlist(possible)),
@@ -288,7 +297,8 @@ microsim_run <- function(params, N = NULL, method="beginning") {
   })   
 }
 
-microsim_icer <- function(params, reference=NULL, genotype=NULL, seed=123, method="beginning",...)
+
+microsim_icer <- function(params, reference=NULL, genotype=NULL, seed=123, method="life-table")
 {
   set.seed(seed)
   params$p_o <- 0.0 # No testing, reference
