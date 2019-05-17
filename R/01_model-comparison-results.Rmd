@@ -36,6 +36,7 @@ library(conflicted)
 library(tangram)
 library(furrr)
 library(microbenchmark)
+library(kableExtra)
 plan(multiprocess)
 source(here("R/plot-theme.R"))
 # conflicted::conflict_scout()
@@ -50,19 +51,27 @@ source(here("R/simple-params.R"))
 source(here("R/simple-des.R"))
 source(here("R/simple-deq.R"))
 source(here("R/simple-markov.R"))
+source(here("R/simple-microsim.R"))
 ```
 
 ## Model Parameters 
 
 ```{r, echo = FALSE}
-params %>% unlist() %>% data.frame() %>% 
+tbl <- 
+  params %>% unlist() %>% data.frame() %>% 
   rownames_to_column() %>% 
   mutate(desc = as.character(params_lut[rowname])) %>% 
-  select(3,2) %>% 
-  mutate_at(vars(2),function(x) ifelse(x>1000,x/1000,ifelse(x<=1,round(x,3), round(x,1)))) %>% 
-  mutate(desc = gsub("$","\\$",desc)) %>% 
-  set_colnames(c("Parameter Description","Value")) %>% 
-  tangram(., as.character=TRUE, style="lancet", caption="Model Parameters",id = "params")
+  select(3,1,2) %>% 
+  mutate_at(vars(3),function(x) ifelse(x>1000,x/1000,ifelse(x<=1,round(x,3), round(x,1)))) %>% 
+  #mutate(desc = gsub("$","\\$",desc)) %>% 
+  set_colnames(c("Parameter Description","Short Name","Value")) #%>% 
+  #tangram(., as.character=TRUE, style="lancet", caption="Model Parameters",id = "params")
+
+kable(tbl) %>% 
+  as_image(width = 6, file = "figs/01_model-parameters.png")
+#html5(tbl,fragment = TRUE) %>% 
+  #as_image(width = 6, file = "figs/01_model-parameters.png", density = 300)
+
 ```
 
 ```{r, eval = TRUE, cache = FALSE}
@@ -71,26 +80,83 @@ params %>% unlist() %>% data.frame() %>%
 # deq <- deq_simulation(params); set.seed(123)
 # mar <- markov_simulation(params); set.seed(123)
 
-
 icer_deq <- deq_icer(params)
 icer_mar <- markov_icer(params)
-
-params$n = 1e6
+icer_microsim <- microsim_icer(params)
 icer_des <- des_icer(params)
 ```
 
+
+## Base Case Results
+
+```{r, eval = TRUE}
+base_case_result <- 
+  icer_deq %>% 
+    bind_rows(icer_mar) %>% 
+    bind_rows(icer_des) %>% 
+    bind_rows(icer_microsim) %>% 
+    mutate(model = c("DEQ","MAR","DES","MICRO")) %>% 
+    select(model,ICER,NMB, everything()) %>% 
+    gather(output, value, -model) %>% 
+    tbl_df() %>% 
+    separate(col = output,into=c("output","strategy"))  
+
+table_main_results <- 
+  base_case_result %>% 
+  filter(!is.na(strategy)) %>% 
+  spread(strategy,value) %>% 
+  mutate(output = factor(output,levels = c("dQALY","dCOST"), 
+                         labels = c("Mean QALYs","Mean Costs"))) %>% 
+  mutate(model = factor(model, levels = c("DEQ","DES","MAR","MICRO"), 
+                        labels = c("Differential Equations","Discrete Event Simulation","Markov Cohort","Individual Microsimulation"))) %>% 
+  arrange(output,model) %>% 
+  select(output,model,ref,test) %>% 
+  mutate(incremental = test - ref) %>% 
+  bind_rows(
+      base_case_result %>% 
+        filter(is.na(strategy)) %>% 
+        mutate(output = factor(output,levels = c("dQALY","dCOST","ICER","NMB"), 
+                               labels = c("Mean QALYs","Mean Costs","ICER","Net Monetary Benefit"))) %>% 
+        mutate(model = factor(model, levels = c("DEQ","DES","MAR","MICRO"), 
+                          labels = c("Differential Equations","Discrete Event Simulation","Markov Cohort",
+                                     "Individual Microsimulation"))) %>% 
+        select(model,output,incremental=value)
+  ) %>% 
+  mutate_at(vars(ref,test,incremental),function(x) ifelse(abs(x)<100,round(x,3),round(x,0))) %>%  
+  mutate(output = ifelse(model == "Differential Equations",output, "")) %>% 
+  mutate_all(funs(as.character)) %>% 
+  mutate_at(vars(ref,test), function(x) ifelse(is.na(x) | x=="NA", "",x)) %>% 
+  set_colnames(c("Outcome","Model Type","No Testing (ref.)","Genetic Testing","Incremental")) %>% 
+  tangram(., style= "Hmisc", caption="Base Case Results",id = "base_case")
+
+table_main_results %>% 
+  html5(fragment=TRUE) %>% 
+  as_image(width = 6, file = "figs/01_main-results.png")
+
+```
+
+
+## Examine Stochasticity
+
 ```{r}
-load(file=here("output/icer_des_N.Rda"))
+
+des_sample_sizes <- 10^c(2, 2.25, 2.5, 2.75 , 3, 3.25, 3.5, 3.75, 4, 4.25, 4.5, 4.75, 5) #, 5.25, 5.5, 5.75, 6, 6.25, 6.5, 6.75, 7)
+
+icer_des_N <-
+ des_sample_sizes %>%
+ future_map(~(des_icer(params,seed=123,N=.x) %>% t() %>% data.frame() %>% mutate(N = .x)))  %>%
+ bind_rows()
+
+icer_microsim_N <-
+ des_sample_sizes %>%
+ future_map(~(microsim_icer(params,seed=123,N=.x) %>% t() %>% data.frame() %>% mutate(N = .x)))  %>%
+ bind_rows()
+
+#load(file=here("output/icer_des_N.Rda"))
 
 labels <- log10(des_sample_sizes)
 labels[(labels - floor(labels)) != 0] <- ""
 
-#des_sample_sizes <- 10^c(2, 2.25, 2.5, 2.75, 3, 3.25, 3.5, 3.75, 4, 4.25, 4.5, 4.75, 5, 5.25, 5.5, 5.75, 6, 6.25, 6.5, 6.75, 7)
-
-#icer_des_N <- 
-#  des_sample_sizes %>% 
-#  future_map(~(des_icer(params,seed=123,N=.x) %>% t() %>% data.frame() %>% mutate(N = .x)))  %>% 
-#  bind_rows()
 
 icer_des_N %>% 
   ggplot(aes(x=N,y=NMB)) +
@@ -113,46 +179,6 @@ icer_des_N %>%
          error_dQALY.ref = dQALY.ref - icer_deq["dQALY.ref"],
          error_dQALY.test = dQALY.test - icer_deq["dQALY.test"]) %>% 
   select(N, contains("error"))
-```
-
-## Base Case Results
-
-```{r, eval = TRUE}
-base_case_result <- 
-  icer_deq %>% 
-    bind_rows(icer_mar) %>% 
-    bind_rows(icer_des) %>% 
-    mutate(model = c("DEQ","MAR","DES")) %>% 
-    select(model,ICER,NMB, everything()) %>% 
-    gather(output, value, -model) %>% 
-    tbl_df() %>% 
-    separate(col = output,into=c("output","strategy"))  
-
-base_case_result %>% 
-  filter(!is.na(strategy)) %>% 
-  spread(strategy,value) %>% 
-  mutate(output = factor(output,levels = c("dQALY","dCOST"), 
-                         labels = c("Mean QALYs","Mean Costs"))) %>% 
-  mutate(model = factor(model, levels = c("DEQ","DES","MAR"), 
-                        labels = c("Differential Equations","Discrete Event Simulation","Markov Cohort"))) %>% 
-  arrange(output,model) %>% 
-  select(output,model,ref,test) %>% 
-  mutate(incremental = test - ref) %>% 
-  bind_rows(
-      base_case_result %>% 
-        filter(is.na(strategy)) %>% 
-        mutate(output = factor(output,levels = c("dQALY","dCOST","ICER","NMB"), 
-                               labels = c("Mean QALYs","Mean Costs","ICER","Net Monetary Benefit"))) %>% 
-        mutate(model = factor(model, levels = c("DEQ","DES","MAR"), 
-                          labels = c("Differential Equations","Discrete Event Simulation","Markov Cohort"))) %>% 
-        select(model,output,incremental=value)
-  ) %>% 
-  mutate_at(vars(ref,test,incremental),function(x) ifelse(abs(x)<100,round(x,3),round(x,0))) %>%  
-  mutate(output = ifelse(model == "Differential Equations",output, "")) %>% 
-  mutate_all(funs(as.character)) %>% 
-  mutate_at(vars(ref,test), function(x) ifelse(is.na(x) | x=="NA", "",x)) %>% 
-  set_colnames(c("Outcome","Model Type","No Testing (ref.)","Genetic Testing","Incremental")) %>% 
-    tangram(., style="lancet", caption="Base Case Results",id = "base_case")
 ```
 
 

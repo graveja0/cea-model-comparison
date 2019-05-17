@@ -288,16 +288,16 @@ microsim_run <- function(params, N = NULL, method="beginning") {
   })   
 }
 
-microsim_icer <- function(params, reference=NULL, genotype=NULL, N = NULL, seed=123, method="beginning")
+microsim_icer <- function(params, reference=NULL, genotype=NULL, seed=123, method="beginning",...)
 {
   set.seed(seed)
   params$p_o <- 0.0 # No testing, reference
-  reference <- microsim_run(params,method=method)
+  reference <- microsim_run(params,method=method,...)
   reference <- reference$results
   
   set.seed(seed)
   params$p_o <- 1.0 # Genotype testing upon indication
-  genotype   <- microsim_run(params,method=method)
+  genotype   <- microsim_run(params,method=method,...)
   genotype <- genotype$results
   
   c( ICER       = unname((genotype['dCOST'] - reference['dCOST']) / (genotype['dQALY'] - reference['dQALY'])),
