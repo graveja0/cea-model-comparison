@@ -50,7 +50,8 @@ conflict_prefer("set_names", "magrittr")
 source(here("R/simple-params.R"))
 source(here("R/simple-des.R"))
 source(here("R/simple-deq.R"))
-source(here("R/simple-markov.R"))
+source(here("R/simple-markov.R")) 
+source(here("R/new_markov.R")) # Faster version of the Markov model. 
 source(here("R/simple-microsim.R"))
 ```
 
@@ -81,15 +82,33 @@ kable(tbl) %>%
 # mar <- markov_simulation(params); set.seed(123)
 
 icer_deq <- deq_icer(params)
+icer_mar2 <- markov_comb(params)
+icer_deq; icer_deq[1] - icer_mar2[1]
+icer_des <- des_icer(params,N = 1e7)
+icer_deq[1] - icer_des[1]
 icer_mar <- markov_icer(params)
 icer_microsim <- microsim_icer(params)
-icer_des <- des_icer(params)
+
+icer_results <- 
+  list("DEQ" = icer_deq,
+       "MAR" = icer_mar2,
+       "DES" = icer_des,
+       "MICRO" = icer_microsim)
+icer_results %>% 
+  write_rds(here("output/icer-results.R"))
+
 ```
 
 
 ## Base Case Results
 
 ```{r, eval = TRUE}
+
+# icer_deq = icer_results$DEQ
+# icer_des = icer_results$DES
+# icer_mar = icer_results$MAR
+# icer_micro = icer_results$MICRO
+
 base_case_result <- 
   icer_deq %>% 
     bind_rows(icer_mar) %>% 
@@ -140,19 +159,20 @@ table_main_results %>%
 
 ```{r}
 
-des_sample_sizes <- 10^c(2, 2.25, 2.5, 2.75 , 3, 3.25, 3.5, 3.75, 4, 4.25, 4.5, 4.75, 5) #, 5.25, 5.5, 5.75, 6, 6.25, 6.5, 6.75, 7)
+des_sample_sizes <- 10^c(2, 2.25, 2.5, 2.75 , 3, 3.25, 3.5, 3.75, 4, 4.25, 4.5, 4.75, 5 , 5.25, 5.5, 5.75, 6, 6.25, 6.5, 6.75, 7)
 
 icer_des_N <-
  des_sample_sizes %>%
  future_map(~(des_icer(params,seed=123,N=.x) %>% t() %>% data.frame() %>% mutate(N = .x)))  %>%
  bind_rows()
+icer_des_N %>% write_rds("output/icer_des_N.rds")
 
 icer_microsim_N <-
  des_sample_sizes %>%
  future_map(~(microsim_icer(params,seed=123,N=.x) %>% t() %>% data.frame() %>% mutate(N = .x)))  %>%
  bind_rows()
+icer_microsim_N %>% write_rds("output/icer_microsim_N.rds")
 
-#load(file=here("output/icer_des_N.Rda"))
 
 labels <- log10(des_sample_sizes)
 labels[(labels - floor(labels)) != 0] <- ""
@@ -165,10 +185,13 @@ icer_des_N %>%
   geom_hline(aes(yintercept = icer_deq["NMB"]),lty=2)+
   geom_hline(aes(yintercept = icer_mar["NMB"]),lty=2,colour="red") +
   ylab("NMB\n(Genotype vs. Reference)") + 
-  xlab("Number of Simulated DES Patients\n(log10)") + 
+  xlab("Number of Simulated Patients\n(log10)") + 
   scale_x_continuous(breaks = des_sample_sizes, labels =labels, trans="log10") + 
   annotate("text",y=icer_deq[["NMB"]],x=1e3,label = "DEQ: NMB",hjust=0) +
-  annotate("text",y=icer_mar[["NMB"]],x=10^2,label = "Markov: NMB",hjust=0,colour="red")
+  annotate("text",y=icer_mar[["NMB"]],x=10^2,label = "Markov: NMB",hjust=0,colour="red") +
+  ylim(c(-300,300)) + 
+  geom_point(data = icer_microsim_N ,pch=2) 
+  #ylim(c(-1))
 ggsave(filename = here("figs/01_NMB-by-des-sample-size.png"),dpi = 300, scale =1,width = 12, height=12)
 ```
 
@@ -181,9 +204,6 @@ icer_des_N %>%
   select(N, contains("error"))
 ```
 
-
-## STOP HERE
-
 ## PSA 
 
 ```{r, cache= TRUE, eval = FALSE}
@@ -195,8 +215,9 @@ get_params <-  function(x,params) {
 
 params$n <- 1e6
 
-draws <- halton(n = 1000, dim = length(params_psa_realistic))
+draws <- halton(n = 100, dim = length(params_psa_realistic))
 
+set.seed(23)
 halton_draws <- 
   draws %>% 
   data.frame() %>% 
@@ -228,10 +249,10 @@ halton_draws_realistic %>%
 
 plan(multiprocess)
 
-# psa_des <- 
-#   halton_draws %>% 
-#   future_map(~(des_icer(.x)), .progress = TRUE)
-# psa_des %>% write_rds(here("output/psa/01_des-psa.rds"))
+psa_des <-
+  halton_draws %>%
+  future_map(~(des_icer(.x)), .progress = TRUE)
+psa_des %>% write_rds(here("output/psa/01_des-psa.rds"))
 
 psa_des_realistic <- 
   halton_draws_realistic %>% 
@@ -377,8 +398,8 @@ p_ce_plane <-
   ggplot(aes(x = diff_qaly, y = diff_cost, colour = model)) + 
   geom_point() + 
   geom_abline(slope = 100000, intercept = 0, lty = 2) + 
-  scale_x_continuous(limits = c(-.5,.5)) + 
-  scale_y_continuous(limits = c(-1000,7000)) +
+  #scale_x_continuous(limits = c(-.5,.5)) + 
+  #scale_y_continuous(limits = c(-1000,7000)) +
   geom_hline(aes(yintercept = 0)) + 
   geom_vline(aes(xintercept = 0)) +
   theme_minimal()
@@ -409,7 +430,7 @@ df_ceac <-
 p_ceac <- 
   df_ceac %>% 
   group_by(lambda,strategy,model) %>% 
-  filter(model != "Markov Cohort") %>% 
+  #filter(model != "Markov Cohort") %>% 
   summarise_at(vars(max),funs(mean)) %>% 
   ggplot(aes(x = lambda, y= max)) + 
   scale_x_continuous(labels = scales::comma) +

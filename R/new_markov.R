@@ -2,7 +2,7 @@ library(tidyverse)
 library(flexsurv)
 
 #### 01 Inputs ####
-source("./simple-params.R")
+# source("./simple-params.R")
 
 #### 02 Functions ####
 gompertz_ratio2 <- function(t, interval, shape, rate) # p.sd for each step
