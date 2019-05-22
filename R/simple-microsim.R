@@ -168,7 +168,7 @@ microsim_run <- function(params, N = NULL, method="beginning") {
         # move forward in A tunnel as needed
         drawA <- draw.events(m.M[,t][fromA],pA)
         intunnel <- (substr(drawA,1,1)=="A")
-        ttunnel <- as.numeric(substr(drawA[intunnel],2,2))
+        ttunnel <- as.numeric(str_replace(drawA[intunnel],"A","")) # which tunnel cycle
         if(any(ttunnel<=d_at*interval)) {
           drawA[intunnel][ttunnel<=d_at*interval] <- paste0("A",ttunnel[ttunnel<=d_at*interval]+1)
         }
