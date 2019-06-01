@@ -2,12 +2,12 @@
 bibliography: ../../../Dropbox/zotero-master-bibliography.bib
 fontsize: 11pt
 output:
+  pdf_document: default
   word_document:
     fig_caption: yes
     fig_height: 3.5
     fig_width: 6.5
     reference_docx: markdown-word-style.docx
-  pdf_document: default
   html_document:
     df_print: paged
 editor_options: 
@@ -20,6 +20,7 @@ knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
 library(tangram)
 library(kableExtra)
+library(knitr)
 ```
 
 # Introduction

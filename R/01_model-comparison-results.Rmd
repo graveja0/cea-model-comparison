@@ -159,20 +159,23 @@ table_main_results %>%
 
 ```{r}
 
-des_sample_sizes <- 10^c(2, 2.25, 2.5, 2.75 , 3, 3.25, 3.5, 3.75, 4, 4.25, 4.5, 4.75, 5 , 5.25, 5.5, 5.75, 6, 6.25, 6.5, 6.75, 7)
+sample_sizes <- 10^c(2, 2.25, 2.5, 2.75 , 3, 3.25, 3.5, 3.75, 4, 4.25, 4.5, 4.75, 5 , 5.25, 5.5, 5.75, 6, 6.25, 6.5, 6.75, 7,7.25,7.5,7.75,8)
 
 icer_des_N <-
- des_sample_sizes %>%
+ sample_sizes %>%
  future_map(~(des_icer(params,seed=123,N=.x) %>% t() %>% data.frame() %>% mutate(N = .x)))  %>%
  bind_rows()
 icer_des_N %>% write_rds("output/icer_des_N.rds")
 
 icer_microsim_N <-
- des_sample_sizes %>%
+sample_sizes %>%
  future_map(~(microsim_icer(params,seed=123,N=.x) %>% t() %>% data.frame() %>% mutate(N = .x)))  %>%
  bind_rows()
 icer_microsim_N %>% write_rds("output/icer_microsim_N.rds")
 
+
+icer_des_N <- read_rds("output/icer_des_N.rds")
+icer_microsim_N <- read_rds("output/icer_microsim_N.rds")
 
 labels <- log10(des_sample_sizes)
 labels[(labels - floor(labels)) != 0] <- ""
