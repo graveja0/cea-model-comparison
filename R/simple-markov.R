@@ -1,252 +1,178 @@
+library(tidyverse)
+library(flexsurv)
 
-# secular death rate over time interval
-gompertz_ratio <- function(t0, t1, shape, rate)
+#### 01 Inputs ####
+# source("./simple-params.R")
+
+#### 02 Functions ####
+gompertz_ratio2 <- function(t, interval, shape, rate) # p.sd for each step
 {
-  r <- (pgompertz(t1, shape, rate) - pgompertz(t0, shape, rate)) / (1 - pgompertz(t0, shape, rate))
-  if(is.na(r)) r=1
-  return(r)
+        t1 <- t/interval
+        t0 <- (t-1)/interval
+        r <- (pgompertz(t1, shape, rate) - pgompertz(t0, shape, rate)) / (1 - pgompertz(t0, shape, rate))
+        if(is.na(r)) r=1
+        return(r)
 }
 
-# Once secular death mortablity reaches 1, all other probs need to put 0. 
+rate_to_prob <- function(r, to = 1, per = 1) {
+        r <- r / per
+        1 - exp(- r * to)
+} # from heemod pkg code
+
+# Once secular death mortablity reaches 1, all other probs need to put 0, no effect for default 40-year time horizon
 cap_max <- function(value,sd) ifelse(value+sd>1,1-sd,value)
 
-
-markov_simulation <- function(params)
-{
-  param <- define_parameters(
-    costA    = params$c_a,
-    disuA    = params$d_a/params$interval,
-    costDrug = 365*params$c_tx/params$interval,
-    costAlt  = 365*params$c_alt/params$interval,
-
-    costBS   = params$c_bs,
-    disuB    = params$d_b/params$interval,
-    costBD   = params$c_bd,
-    
-    age_init = 40,
-    t1 = model_time/params$interval, #model_time starts with 1
-    t0 = (model_time-1)/params$interval,
-    
-    pD = map2_dbl(t0,t1,~gompertz_ratio(t0=.x,t1=.y,shape=params$shape,rate=params$rate)),
-    pA = map_dbl(pD,~cap_max(value=rate_to_prob(params$r_a,1/params$interval),sd=.x)),
-    pB = map_dbl(pD,~cap_max(value=rate_to_prob(params$r_b,1/params$interval),sd=.x)),
-    
-    fatalB = params$p_bd,
-    pBS = pB*(1-fatalB),
-    pBD = pB*fatalB,
-    
-    #only matters to weight genotype strategy with behavioral parameter
-    gene = 1, #0 or 1
-    test = 1, #0 or 1, whether to test under genotype scenario
-    rr = map2_dbl(gene,test, function(x,y) ifelse(x==1 & y==1, params$rr_b, 1)),
-    
-    #just for genotype strategy
-    cDgenotype = map2_dbl(gene, test, function(x,y) ifelse(x==1 & y==1,costAlt,costDrug)),
-    costTest = map_dbl(test, function(x) ifelse(x==1, params$c_t, 0))
-  )
-  
-  #transition matrix
-  mat_reference <- define_transition(
-    state_names = c("H","A","BS","BD","D"),
-    C,pA,0,0,pD,
-    0,C,pBS,pBD,pD,
-    0,0,C,0,pD,
-    0,0,0,1,0,
-    0,0,0,0,1
-  )
-  
-  mat_genotype <- define_transition(
-    state_names = c("H","A","BS","BD","D"),
-    C,pA,0,0,pD,
-    0,C,rr*pBS,rr*pBD,pD,
-    0,0,C,0,pD,
-    0,0,0,1,0,
-    0,0,0,0,1
-  )
-  
-  dr <- rescale_discount_rate(params$disc,from=params$interval,to=1) # discounting rate
-  
-  ####################
-  # Healthy
-  state_H <- define_state(
-    cost     = 0,
-    QALY     = discount(1/params$interval,dr),
-    
-    # Diagnostics
-    A_acc    = 0,
-    A_du_acc = 0,
-    living   = 1,
-    possible = discount(1/params$interval, dr),
-    fatal_b  = 0,
-    cost_g   = 0,
-    cost_d   = 0,
-    cost_tx  = 0,
-    dis_a    = 0,
-    dis_b    = 0
-  )
-  
-  ####################
-  # Indication 
-  state_A <- define_state(
-    cost = discount(dispatch_strategy(
-      reference=ifelse(state_time==1,costA,0)+costDrug,
-      genotype =ifelse(state_time==1,costA,0)+ifelse(state_time==1,costTest,0)+cDgenotype
-    ), dr),
-    QALY   = discount(ifelse(state_time<=params$d_at*params$interval,1/params$interval - disuA,1/params$interval),dr),
-    
-    # Diagnostics
-    A_acc    = ifelse(state_time==1,1,0),
-    A_du_acc = ifelse(state_time<=params$d_at*params$interval,1,0), # How many in disutility state
-    living   = 1,
-    possible = discount(1/params$interval, dr),
-    fatal_b  = 0,
-    cost_g   = discount(dispatch_strategy(reference=0,genotype=ifelse(state_time==1,costTest,0)), dr),
-    cost_d   = discount(dispatch_strategy(reference=costDrug,genotype=cDgenotype), dr),
-    cost_tx  = discount(ifelse(state_time==1,costA,0), dr),
-    dis_a    = discount(ifelse(state_time<=params$interval*params$d_at,disuA,0), dr),
-    dis_b    = 0
-  )
-  
-  ####################
-  # Adverse Event Survivor
-  state_BS <- define_state(
-    cost = discount(dispatch_strategy(
-      reference=ifelse(state_time==1,costBS,0)+costDrug,
-      genotype=ifelse(state_time==1,costBS,0)+cDgenotype
-    ), dr),
-    QALY = discount(1/params$interval-disuB,dr),
-    
-    # Diagnostics
-    A_acc    = 0,
-    A_du_acc = 0,
-    living   = 1,
-    possible = discount(1/params$interval, dr),
-    fatal_b  = 0,
-    cost_g   = 0,
-    cost_d   = discount(dispatch_strategy(reference=costDrug,genotype=cDgenotype), dr),
-    cost_tx  = discount(ifelse(state_time==1,costBS,0), dr),
-    dis_a    = 0,
-    dis_b    = discount(disuB, dr)
-  )
-
-  ####################
-  # Adverse Event Death
-  state_BD <- define_state(
-    cost = discount(ifelse(state_time==1,costBD,0),dr),
-    QALY = 0,
-    
-    # Diagnostics
-    A_acc    = 0,
-    A_du_acc = 0,
-    living   = 0,
-    possible = 0,
-    fatal_b  = ifelse(state_time==1,1,0),
-    cost_g   = 0,
-    cost_d   = 0,
-    cost_tx  = discount(ifelse(state_time==1,costBD,0), dr),
-    dis_a    = 0,
-    dis_b    = 0
-  )
-  
-  ####################
-  # Secular Death
-  state_D <- define_state(
-    cost     = 0,
-    QALY     = 0,
-    
-    # Diagnostics
-    A_acc    = 0,
-    A_du_acc = 0,
-    living   = 0,
-    possible = 0,
-    fatal_b  = 0,
-    cost_g   = 0,
-    cost_d   = 0,
-    cost_tx  = 0,
-    dis_a    = 0,
-    dis_b    = 0
-  )
-  
-  # binding 
-  strat_reference <- define_strategy(
-    transition = mat_reference,
-    H=state_H,
-    A=state_A,
-    BS=state_BS,
-    BD=state_BD,
-    D=state_D
-  )
-  
-  strat_genotype <- define_strategy(
-    transition = mat_genotype,
-    H=state_H,
-    A=state_A,
-    BS=state_BS,
-    BD=state_BD,
-    D=state_D
-  )
-  
-  # run
-  res_mod <- run_model(
-    reference=strat_reference,
-    genotype=strat_genotype,
-    parameters = param,
-    cycles = ceiling(params$horizon*params$interval),
-    cost = cost,
-    effect = QALY,
-    state_time_limit=ceiling(min(params$interval*params$d_at+1, params$horizon*params$interval)),
-    method="life-table"  # WTF? This should be called "trapezoidal" and better should be alternate simpsons extended!
-  )
-  
-  ### add gene prevalence and whether to test under genetype scenario
-  o <- params$p_o
-  g <- params$p_g
-  wt <- c((1-g)*(1-o),g*o,g*(1-o),(1-g)*o)
-  
-  pop   <- data.frame(gene=c(0,1,1,0),test=c(0,1,0,1),.weights=wt*100)
-  res_h <- update(res_mod, newdata = pop)
-  
-  res_h
+#trying to replicate life-table method
+ltm <- function(x,method="beginning") {
+        if(method=="life-table") {
+                n0 <- x[- nrow(x), ]
+                n1 <- x[-1, ]
+                (n0 + n1) / 2
+        } else if(method=="beginning"){
+                x[-1, ]
+        } else if(method=="end") {
+                x[- nrow(x), ]
+        } else stop("undefined method") 
 }
 
-markov_summary <- function(solution, params)
-{
-  model <- if(params$p_o == 0.0) solution$combined_model$eval_strategy_list$reference else
-           if(params$p_o == 1.0) solution$combined_model$eval_strategy_list$genotype  else
-           stop("Probability of ordering test as a ratio not handled")
 
-  summary <- if(params$p_o == 0.0) data.frame(solution$combined_model$run_model[1,]) else
-                                   data.frame(solution$combined_model$run_model[2,])
-  
-  c(dCOST       = unname(summary[1,'cost']),
-    dQALY       = unname(summary[1,'QALY']),
-    possible    = unname(sum(model$values$possible)),
-    fatal_b     = unname(sum(model$values$fatal_b)),
-    living      = unname(model$values$living[length(model$values$living)]),
-    disutil_a   = unname(sum(model$values$dis_a)),
-    disutil_b   = unname(sum(model$values$dis_b)),
-    dCOST.test  = unname(sum(model$values$cost_g)),
-    dCOST.drug  = unname(sum(model$values$cost_d)),
-    dCOST.treat = unname(sum(model$values$cost_tx))
-  )/1000
+#### 03 Main Simulation
+# Unweighted model
+markov0 <- function(params, N = NULL, gene=0, test=0, method="beginning") {
+        if (!is.null(N)) params$n <- N
+        with(params, {
+                
+                #### 1. Model Setting ####
+                n.t       <- horizon*interval           # number of cycles
+                v.n       <- c("H",paste0("A",1:(d_at*interval+1)),"BS1","BS2","BD1","BD2","D")    # state names
+                n.s       <- length(v.n)          # number of states
+                
+                #### 2. Inputs ####
+                #secular death risk
+                p.HD <- 1:n.t %>% map_dbl(~gompertz_ratio2(.x,interval,shape,rate))
+                
+                pA <- map_dbl(p.HD,~cap_max(value=rate_to_prob(r_a,1/interval),sd=.x))
+                
+                rr <- ifelse(gene==1 & test==1, rr_b, 1)
+                pB <- map_dbl(p.HD,~cap_max(value=rate_to_prob(r_b,1/interval),sd=.x))
+                pBS <- rr*pB*(1-p_bd)
+                pBD <- rr*pB*p_bd
+                
+                #### 3. Transition Matrix ####
+                # cohort counts
+                m.M <- matrix(0, 
+                              nrow = n.t + 1 ,                # create Markov trace (n.t + 1 because R doesn't understand  Cycle 0)
+                              ncol = n.s,                  
+                              dimnames = list(0:n.t, v.n)) 
+                
+                ####
+                # The cohort starts from state 1
+                m.M[1,] <- c(1, rep(0, n.s-1))      # initialize first cycle of Markov trace accounting for the tunnels
+                ####
+                
+                # transition probability array
+                tp <-  matrix(0,nrow = n.s, ncol = n.s, dimnames = list(v.n,v.n))
+                l.P <- 1:n.t %>% map(function(x) {
+                        
+                        tp["H","A1"] <- pA[x]
+                        tp["H","D"] <- p.HD[x]
+                        tp["H","H"] <- 1-pA[x]-p.HD[x]
+                        
+                        for(y in 1:(d_at*interval+1)) {
+                                tp[paste0("A",y),"BS1"] <- pBS[x]  
+                                tp[paste0("A",y),"BD1"] <- pBD[x]
+                                tp[paste0("A",y),"D"] <- p.HD[x]
+                        }
+                        for(y in 1:(d_at*interval)) {
+                                tp[paste0("A",y),paste0("A",y+1)] <- 1-pBS[x]-pBD[x]-p.HD[x]
+                        }
+                        
+                        tp[paste0("A",d_at*interval+1),paste0("A",d_at*interval+1)] <- 1-pBS[x]-pBD[x]-p.HD[x]
+                        
+                        tp["BS1","D"] <- tp["BS2","D"] <- p.HD[x]
+                        tp["BS1","BS2"] <- tp["BS2","BS2"] <- 1-p.HD[x]
+                        
+                        tp["BD1","BD2"] <- tp["BD2","BD2"] <- 1
+                        
+                        tp["D","D"] <- 1
+                        
+                        return(tp)
+                })
+                
+                
+                #### 4. Run ####
+                for (t in 1:n.t) {                        # loop through the number of cycles
+                        m.M[t + 1, ] <- m.M[t, ] %*% l.P[[t]] # estimate the Markov trace for cycle t + 1 using the t-th matrix from the probability array
+                }
+                
+                #### 5. Computation ####
+                d.r <- (1 + disc)^(1/interval)-1
+                v.dwc <- 1 / (1 + d.r) ^ (0:(n.t-1)) # calculate discount weights for costs for each cycle based on discount rate d.r
+                v.dwe <- 1 / (1 + d.r) ^ (0:(n.t-1))
+                
+                #adjust counts based on method
+                mm <- ltm(m.M,method=method)
+                
+                dd <- ifelse(gene==1 & test==1, c_alt*365/interval,c_tx*365/interval) #conditional drug cost
+                tt <- ifelse(test==1,c_t,0)
+                
+                cc <- mm %*% c(0,c_a+dd+tt,rep(dd,d_at*interval),c_bs+dd,dd,c_bd,0,0)
+                ee <- mm %*% c(1/interval,rep((1-d_a)/interval,d_at*interval),1/interval,(1-d_b)/interval,(1-d_b)/interval,0,0,0)
+                cc <- as.vector(cc) * v.dwc
+                ee <- as.vector(ee) * v.dwe
+                c.test <- mm[,"A1"]*tt*v.dwc
+                c.drug <- mm %*% c(0,dd,rep(dd,d_at*interval),dd,dd,0,0,0)
+                c.drug <- as.vector(c.drug) * v.dwc
+                
+                possible <- mm %*% c(1,rep(1,d_at*interval+1),1,1,0,0,0)
+                possible <-  as.vector(possible) * v.dwe
+                fatal_b <- mm[n.t,c("BD1","BD2")] %>% sum()
+                living <- 1 - sum(mm[n.t,c("BD1","BD2","D")])
+                disutil_a <- mm  %*% c(0,rep(d_a,d_at*interval),0,0,0,0,0,0)
+                disutil_a <- as.vector(disutil_a) * v.dwe
+                disutil_b <- mm  %*% c(0,rep(0,d_at*interval+1),d_b,d_b,0,0,0)
+                disutil_b <- as.vector(disutil_b) * v.dwe
+                c.treat <- mm  %*% c(0,c_a,rep(0,d_at*interval),c_bs,0,c_bd,0,0)
+                c.treat <-  as.vector(c.treat) * v.dwc
+                
+                return(list(m.M=m.M,l.P=l.P,mm=mm,
+                            results=c(dCOST       = sum(unlist(cc)),
+                                      dQALY       = sum(unlist(ee)),
+                                      possible    = sum(unlist(possible)),
+                                      fatal_b     = unname(fatal_b),
+                                      living      = unname(living),
+                                      disutil_a   = sum(unlist(disutil_a)),
+                                      disutil_b   = sum(unlist(disutil_b)),
+                                      dCOST.test  = sum(unlist(c.test)),
+                                      dCOST.drug  = sum(unlist(c.drug)),
+                                      dCOST.treat = sum(unlist(c.treat)))
+                ))
+                
+        })
+        
 }
 
-markov_icer <- function(params, solution=NULL)
+# Combined model
+markov_comb <- function(params,method="life-table")
 {
-  if(is.null(solution)) solution   <- suppressMessages(markov_simulation(params))
-  params$p_o <- 0
-  reference  <- markov_summary(solution, params)
-  params$p_o <- 1
-  genotype   <- markov_summary(solution, params)
-
-  c( ICER       = unname((genotype['dCOST'] - reference['dCOST']) / (genotype['dQALY'] - reference['dQALY'])),
-     NMB        = unname((reference['dCOST'] - genotype['dCOST']) + params$wtp*(genotype['dQALY'] - reference['dQALY'])),
-     dCOST.ref  = unname(reference['dCOST']),
-     dCOST.test = unname(genotype['dCOST']),
-     dQALY.ref  = unname(reference['dQALY']),
-     dQALY.test = unname(genotype['dQALY'])
-  )
+        ref1 <- markov0(params,gene=0,test=0,method=method)
+        test1 <- markov0(params,gene=1,test=1,method=method)
+        test2 <- markov0(params,gene=0,test=1,method=method)
+        
+        o <- params$p_o
+        g <- params$p_g
+        wt <- c(1-o,g*o,(1-g)*o)
+        dCOST.ref <- ref1$results["dCOST"]
+        dQALY.ref <- ref1$results["dQALY"]
+        dCOST.test <- sum(wt*c(ref1$results["dCOST"],test1$results["dCOST"],test2$results["dCOST"]))
+        dQALY.test <- sum(wt*c(ref1$results["dQALY"],test1$results["dQALY"],test2$results["dQALY"]))
+        
+        c(ICER=(dCOST.test-dCOST.ref)/(dQALY.test-dQALY.ref),
+          NMB=(dCOST.ref-dCOST.test)+params$wtp*(dQALY.test-dQALY.ref),
+          dCOST.ref=unname(dCOST.ref),dCOST.test=unname(dCOST.test),
+          dQALY.ref=unname(dQALY.ref),dQALY.test=unname(dQALY.test))
+        
 }
 
-#round(markov_summary(solution <- markov_simulation(params), params),5)
-#markov_icer(params)
+
+
