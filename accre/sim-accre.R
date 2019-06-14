@@ -7,16 +7,7 @@
 
   #############################################################################
  ##
-## Helper Function For ACCRE Run
-progress <- function(...)
-{
-  cat(date(), ' ')
-  invisible(lapply(list(...), function(x) cat(x,'\n')))
-}
-
-  #############################################################################
- ##
-## Must define function simulation()
+## Must define function simulation(x)
 source("run.R")
 
   #############################################################################
