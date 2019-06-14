@@ -26,7 +26,7 @@ params_lut <-
     r_a_dur = "Condition indication duration (in years)",
     r_a  = "Inst rate of developing condition.",
     r_b_pct = "Adverse drug event percentage",
-    r_b_dur = "Advarse drug event duration (in years)",
+    r_b_dur = "Adverse drug event duration (in years)",
     r_b  = "Inst rate of adverse drug event.",
     rr_b = "Relative risk of adverse drug event | Genetic variant present and alternative therapy prescribed.",
     
