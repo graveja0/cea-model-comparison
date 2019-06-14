@@ -35,6 +35,6 @@ set.seed(x)
  ##
 ## Run the job and save to output directory
 progress(paste0("Batch ", x, " starting."))
-results <- simulation(1000)
+results <- simulation(10000)
 save(results, file=paste0("output/run-", x, ".RData"))
 progress(paste0("Batch ", x, " complete."))
