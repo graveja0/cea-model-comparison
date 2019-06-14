@@ -1,8 +1,13 @@
-library(tidyverse)
+#library(tidyverse)
 library(flexsurv)
+library(magrittr)
+library(purrr)
+library(dplyr)
+library(stringr)
+library(tidyr)
 
 #### 01 inputs ####
-source("./R/simple-params.R")
+#source("./R/simple-params.R")
 
 #### 02 Sim Functions ####
 #---------------------------------------------------------------------------#
@@ -298,17 +303,21 @@ microsim_run <- function(params, N = NULL, method="beginning") {
 }
 
 
-microsim_icer <- function(params, reference=NULL, genotype=NULL, seed=123, method="life-table",...)
+microsim_icer <- function(params, reference=NULL, genotype=NULL, seed=NULL, method="life-table",...)
 {
-  set.seed(seed)
-  params$p_o <- 0.0 # No testing, reference
-  reference <- microsim_run(params,method=method,...)
-  reference <- reference$results
+  if(!is.null(seed)) set.seed(seed)
+    
+  seed         <- .Random.seed  
+    
+  params$p_o   <- 0.0 # No testing, reference
+  reference    <- microsim_run(params,method=method,...)
+  reference    <- reference$results
   
-  set.seed(seed)
-  params$p_o <- 1.0 # Genotype testing upon indication
-  genotype   <- microsim_run(params,method=method,...)
-  genotype <- genotype$results
+  .Random.seed <- seed
+  
+  params$p_o   <- 1.0 # Genotype testing upon indication
+  genotype     <- microsim_run(params,method=method,...)
+  genotype     <- genotype$results
   
   c( ICER       = unname((genotype['dCOST'] - reference['dCOST']) / (genotype['dQALY'] - reference['dQALY'])),
      NMB        = unname((reference['dCOST'] - genotype['dCOST']) + params$wtp*(genotype['dQALY'] - reference['dQALY'])),
