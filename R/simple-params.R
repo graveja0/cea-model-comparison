@@ -66,7 +66,7 @@ params <- list(
   p_g  = 0.2,                # Probability of genetic variant
   r_a_pct = 10,              # Percentage who develop condition.
   r_a_dur = 10,              # Condition indication rate duration (in years).
-  r_b_pct = 10,               # Adverse drug event percentage
+  r_b_pct = 25,              # Adverse drug event percentage
   r_b_dur = 1,               # Adverse drug event duration (in years). 
   rr_b = 0.8,                # Reduced relative risk of B
   
@@ -74,8 +74,8 @@ params <- list(
   c_a   = 10000,             # Cost of Event A
   c_bs  = 25000,             # Cost of Event B survival
   c_bd  = 20000,             # Cost of Event B death
-  c_tx  = 0.25,               # Cost of normal treatment
-  c_alt = 5,                 # Cost of alternate treatment
+  c_tx  = 0.25,              # Cost of normal treatment
+  c_alt = 3,                 # Cost of alternate treatment
   c_t   = 200,               # Cost of test
   
   # Disutilities
@@ -89,7 +89,7 @@ params <- list(
 params$r_a <- inst_rate(params$r_a_pct / 100, params$r_a_dur)
 params$r_b <- inst_rate(params$r_b_pct / 100, params$r_b_dur)
 
-params_psa <- list(
+params_psa_full <- list(
   # Controls for model execution
   n          = function(x) qnorm(p = x, mean = params$n,sd =0),      # DES simulations to perform
   resolution = function(x) qnorm(p = x, mean = params$resolution ,sd = 0),        # Diff Eq Time step for DEQ approach
@@ -105,7 +105,7 @@ params_psa <- list(
   # Probabilities and rates
   p_o  = function(x) qunif(p = x, min = 0.0, max = 1),                # Probability of ordering test (overwritten by runs to 0 and 1)
   p_bd = function(x) qunif(p = x, min = 0.0, max = 1),                       # Probability of death from B
-  p_g  = function(x) qunif(p = x, min = 0.0, max = 0.5),              # Probability of genetic variant
+  p_g  = function(x) qunif(p = x, min = 0.0, max = 0.4),              # Probability of genetic variant
   r_a_pct = function(x) qunif(p = x, min = 0.0, max = 1),              # Percentage who develop condition.
   r_a_dur = function(x) qunif(p = x, min = 1e-7, max = params$horizon),              # Condition indication rate duration (in years).
   r_b_pct = function(x) qunif(p = x, min = 0.0, max = 1),               # Adverse drug event percentage
