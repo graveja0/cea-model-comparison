@@ -1,15 +1,5 @@
-
-# secular death rate over time interval
-gompertz_ratio <- function(t0, t1, shape, rate)
-{
-  r <- (pgompertz(t1, shape, rate) - pgompertz(t0, shape, rate)) / (1 - pgompertz(t0, shape, rate))
-  if(is.na(r)) r=1
-  return(r)
-}
-
-# Once secular death mortablity reaches 1, all other probs need to put 0. 
-cap_max <- function(value,sd) ifelse(value+sd>1,1-sd,value)
-
+library(here)
+source(here("common.R"))
 
 markov_simulation <- function(params)
 {

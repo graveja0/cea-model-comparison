@@ -1,5 +1,5 @@
-library(flexsurv)
 library(here)
+<<<<<<< HEAD
 
 source(here("R/simpson.R"))
 
@@ -46,6 +46,9 @@ integrator <- function(x, method="beginning")
     alt_simp(x, 1)
   } else stop("undefined method") 
 }
+=======
+source(here("common.R"))
+>>>>>>> 828d5a5475fd122dc2a96a94545ebce7c74d42ae
 
 
 #### 03 Main Simulation
