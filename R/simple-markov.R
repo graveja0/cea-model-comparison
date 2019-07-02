@@ -1,7 +1,7 @@
 library(flexsurv)
 library(here)
 
-source(here("simpson.R"))
+source(here("R/simpson.R"))
 
 #### 02 Functions ####
 gompertz_ratio2 <- function(t, interval, shape, rate) # p.sd for each step

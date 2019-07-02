@@ -1,6 +1,6 @@
 
 library(here)
-source(here("simpson.R"))
+source(here("R/simpson.R"))
 
 ###################################
 # Numerical Delay Differential Equation
