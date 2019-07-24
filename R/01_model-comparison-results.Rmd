@@ -51,7 +51,7 @@ source(here("R/simple-params.R"))
 source(here("R/simple-des.R"))
 source(here("R/simple-deq.R"))
 source(here("R/simple-markov.R")) 
-source(here("R/new_markov.R")) # Faster version of the Markov model. 
+source(here("R/simple-markov-heemod.R")) 
 source(here("R/simple-microsim.R"))
 ```
 
@@ -70,8 +70,9 @@ tbl <-
 
 kable(tbl) %>% 
   as_image(width = 6, file = "figs/01_model-parameters.png")
-#html5(tbl,fragment = TRUE) %>% 
-  #as_image(width = 6, file = "figs/01_model-parameters.png", density = 300)
+
+# html5(tbl,fragment = TRUE) %>% 
+#   as_image(width = 6, file = "figs/02_model-parameters.png")
 
 ```
 

@@ -1,5 +1,5 @@
 library(here)
-source(here("common.R"))
+source(here("R/common.R"))
 
 markov_simulation <- function(params)
 {
