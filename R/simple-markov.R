@@ -1,6 +1,5 @@
 library(here)
-
-#source(here("R/simpson.R"))
+source(here("R/common.R"))
 
 #### 02 Functions ####
 gompertz_ratio2 <- function(t, interval, shape, rate) # p.sd for each step

@@ -1,3 +1,5 @@
+library(here)
+source(here("R/common.R"))
 
 # Perform all random draws in the manner of Discrete Event Simulation
 # This can be done without larger frameworks due to simplicity of model
