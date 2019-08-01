@@ -1,6 +1,7 @@
 
 library(here)
-source(here("common.R"))
+library(deSolve)
+source(here("R/common.R"))
 
 ###################################
 # Numerical Delay Differential Equation

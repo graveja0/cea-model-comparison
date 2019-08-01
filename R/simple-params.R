@@ -1,4 +1,5 @@
-inst_rate <- function(percent, timeframe) -log(1-percent) / timeframe
+library(here)
+source(here("R/common.R"))
 
 ##############################################################
 ##
