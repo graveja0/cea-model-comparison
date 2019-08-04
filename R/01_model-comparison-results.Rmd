@@ -84,9 +84,9 @@ kable(tbl) %>%
 
 icer_deq <- deq_icer(params)
 icer_mar2 <- markov_comb(params)
-icer_deq; icer_deq[1] - icer_mar2[1]
+# icer_deq; icer_deq[1] - icer_mar2[1]
 icer_des <- des_icer(params,N = 1e7)
-icer_deq[1] - icer_des[1]
+#icer_deq[1] - icer_des[1]
 icer_mar <- markov_icer(params)
 icer_microsim <- microsim_icer(params)
 
