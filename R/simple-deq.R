@@ -45,27 +45,27 @@ deq_summary <- function(solution, params)
     
     # Compute dscounted Cost
     treatment.cost <- 
-      c_a  *alt_ext_simpson(diff(solution[,"a_c"])*solution[2:k,"dsc"]) +
-      c_bs *alt_ext_simpson(diff(solution[,"b_c"])*solution[2:k,"dsc"]) +
-      c_bd *alt_ext_simpson(diff(solution[,"b_d"])*solution[2:k,"dsc"])
+      c_a  *alt_simp(diff(solution[,"a_c"])*solution[2:k,"dsc"], 1) +
+      c_bs *alt_simp(diff(solution[,"b_c"])*solution[2:k,"dsc"], 1) +
+      c_bd *alt_simp(diff(solution[,"b_d"])*solution[2:k,"dsc"], 1)
     drug.cost <-
-      c_tx *365*alt_ext_simpson(solution[,"a_p"]*solution[,"dsc"])*step +
-      c_alt*365*alt_ext_simpson(solution[,"a_a"]*solution[,"dsc"])*step +
-      c_tx *365*alt_ext_simpson(solution[,"b_p"]*solution[,"dsc"])*step +
-      c_alt*365*alt_ext_simpson(solution[,"b_a"]*solution[,"dsc"])*step
+      c_tx *365*alt_simp(solution[,"a_p"]*solution[,"dsc"], 1)*step +
+      c_alt*365*alt_simp(solution[,"a_a"]*solution[,"dsc"], 1)*step +
+      c_tx *365*alt_simp(solution[,"b_p"]*solution[,"dsc"], 1)*step +
+      c_alt*365*alt_simp(solution[,"b_a"]*solution[,"dsc"], 1)*step
     
     # Total living in model
     life <- rowSums(solution[,c("h_u","a_p","a_a","b_p","b_a")])
     
     # Total possible life units is integral of dscounted time
-    pQALY <- alt_ext_simpson(life*solution[,"dsc"])*step
+    pQALY <- alt_simp(life*solution[,"dsc"], 1)*step
     
     # Temp Disutility of Indication
-    disA <- d_a*alt_ext_simpson(solution[,'a_dp']*solution[,"dsc"])*step +
-      d_a*alt_ext_simpson(solution[,'a_da']*solution[,"dsc"])*step
+    disA <- d_a*alt_simp(solution[,'a_dp']*solution[,"dsc"], 1)*step +
+      d_a*alt_simp(solution[,'a_da']*solution[,"dsc"], 1)*step
     # Permanent Disutility for Adverse Event
-    disB <- d_b*alt_ext_simpson(solution[,'b_p']*solution[,"dsc"])*step + 
-      d_b*alt_ext_simpson(solution[,'b_a']*solution[,"dsc"])*step 
+    disB <- d_b*alt_simp(solution[,'b_p']*solution[,"dsc"], 1)*step + 
+      d_b*alt_simp(solution[,'b_a']*solution[,"dsc"], 1)*step 
     
     c(dCOST       = unname(treatment.cost+test.cost+drug.cost),
       dQALY       = unname(pQALY-disA-disB),
