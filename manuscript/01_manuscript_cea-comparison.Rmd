@@ -2,12 +2,12 @@
 bibliography: ../../../Dropbox/zotero-master-bibliography.bib
 fontsize: 11pt
 output:
-  pdf_document: default
   word_document:
     fig_caption: yes
     fig_height: 3.5
     fig_width: 6.5
     reference_docx: markdown-word-style.docx
+  pdf_document: default
   html_document:
     df_print: paged
 editor_options: 
@@ -29,21 +29,21 @@ Decision analytic assessments of health policies and technologies play an import
 
 For a given health technology assessment or research question, best practice recommends model choice based on consultation among clinical, metholological, and policy experts [@caro_advantages_2016;@stahl_modelling_2008]. This ensures that the model accurately represents essential elements of the underlying disease or therapeutic processes, as well as the alternative strategies under consideration. 
 
-In practice, however, considerations over model transparency, detail, ease of use, and even regulatory disclosure requirements may also come into play. In addition, the application of Value of Information (VOI) methods may also guide model selection because the computational demands of VOI can be considerable [@jalal_gaussian_2018]. Thus, different modeling choices may be made depending on the relative weight placed on maximizing model and output resolution on the one hand, and on understanding parameter uncertainty to guide the scope and direction of future research on the other. 
+In practice, considerations over model transparency, detail, ease of use, and even regulatory disclosure requirements may also come into play. In addition, the application of Value of Information (VOI) methods may also guide model selection because the computational demands of VOI can be considerable [@jalal_gaussian_2018]. Thus, different modeling choices may be made depending on the relative weight placed on maximizing model and output resolution on the one hand, and on understanding parameter uncertainty to guide the scope and direction of future research on the other. 
  
-Our objective for this study was to develop and compare four models of the same underlying decision-making scenario. In doing so, we provide replicable, open-source (R) simulation code that crosswalks across diverse modeling approaches: cohort state transition (Markov) models,  discrete event simulation (DES), microsimulation, and systems dynamics modeling based on time delay differential equations (DE). Importantly, these models draw on an identical set of underlying parameters that should, we hypothesized, lead to equivalent (in expectation) cost and quality-adjusted life year (QALY) estimates and decision outcomes.  Our results demonstrate that under common situations (e.g., the use of tunnel states in Markov models) they do not. 
+Our objective for this study was to develop and compare four models of the same underlying decision-making scenario. In doing so, we provide replicable, open-source (R) simulation code that crosswalks across diverse modeling approaches: cohort state transition (Markov),  indiviudal state transition (microsimulation), discrete event simulation (DES), and systems dynamics modeling based on time delay differential equations (DE). Importantly, these models draw on an identical set of underlying parameters that should, we hypothesized, lead to equivalent (in expectation) cost and quality-adjusted life year (QALY) estimates and decision outcomes.  Our results demonstrate that under common situations (e.g., the use of tunnel states in Markov models) they do not. 
 
-A key contribution of our study is the mathematical derivation of adjustment factors that must be applied to individual- and cohort state transition (Markov) models to produce equivalent model estimates as discrete event simulation or differential equations models.  These adjustments are necessary due to an interaction between competing risks and the coarsening of time into discrete cycles in a Markov model. Notably—-and somewhat counterintuitively—-neither half-cycle corrections (or its alternatives) or reducing the time cycle to continuous time will remove this source of bias. Our results demonstrate that depending on the circumstances, these biases are not trivial and can lead to differences in decision-making that arise simply due to differences in model choice. 
+A key contribution of our study is the derivation of adjustment factors that must be applied to individual- and cohort state transition (Markov) models to produce equivalent model estimates as discrete event simulation or differential equations models.  These adjustments are necessary due to an interaction between competing risks and the coarsening of time into discrete cycles in a Markov model. Notably—-and somewhat counterintuitively—-neither half-cycle corrections (or its alternatives) or reducing the time cycle will remove this source of bias. Our results demonstrate that depending on the circumstances, these biases are not trivial and can lead to differences in decision-making that arise simply due to differences in model choice. 
 
 The remainder of this paper proceeds as follows. The next section provides brief detail on the four simulation methods we consider. Thereafter, we describe a specific application in pharmacogenomics. Specifically, we outline a simple scenario under which decision makers consider genotyping a population at the time of drug exposure. This genetic test can guide drug selection to ensure that the chosen therapy maximizes drug metabolism, thereby reducing the likelihood of a severe drug-related adverse event. Initial model comparison results for this simple pharmacogenomic scenario lead directly into the exposition of adjustment factors for models based on Markovian processes (e.g., cohort state transition and microsimulation). We then demonstrate (stochastic) equivalence in model results across all four approaches after the adjustment factors are applied. We conclude with .... 
 
 # Background
 
-## Cohort State Transition (Markov)
 
-## Microsimulation 
+## Cohort and Individual State Transition Models
 
-Whereas cohort state transition models trace out the mean outcome response for a homongenous cohort, micrisimulation models simulate indivdiual health and costtrajectories. 
+State transition models conceptualize disease and/or therapeutic decision problems in terms of discrete states that individuals can occupy over some defined time horizon. 
+
 
 ## Discrete Event Simulation
 

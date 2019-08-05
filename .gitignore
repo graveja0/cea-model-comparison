@@ -2,5 +2,9 @@
 .Rhistory
 .RData
 .Ruserdata
-
-R/.Rapp.history
+R/ignore/
+ignore/
+figs/
+manuscript/
+reference/
+.DS_Store
