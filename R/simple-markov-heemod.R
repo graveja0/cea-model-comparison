@@ -1,4 +1,6 @@
 library(here)
+library(heemod)
+library(purrr)
 source(here("R/common.R"))
 
 markov_simulation <- function(params)

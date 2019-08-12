@@ -76,54 +76,56 @@ markov_corr <- function(params, N=NULL, gene=0, test=0, method="beginning")
   params$p_g <- gene
   params$p_o <- test
   
-  m.M <- markov_corr_simulation(params)
+  m.M <- markov_corr_sim(params)
   
   # To Debug
   # sapply(names(params), function(n) assign(n, params[[n]], envir=baseenv()))
   with(params, {
         
-     #### 5. Computation ####
+    n.t <- dim(m.M)[1]
+    #### 5. Computation ####
     d.r  <- (1 + disc)^(1/interval)-1
     v.dw <- 1 / (1 + d.r) ^ (0:(n.t-1)) # calculate discount weights for costs for each cycle based on discount rate d.r
+    
+    # adjust counts using integration methods
+    mm        <- integrator(m.M,                method=method) # Total counts
+    dmm       <- integrator(diag(v.dw) %*% m.M, method=method) # Discounted counts
 
-    # #adjust counts based on method
-    # mm        <- integrator(m.M, method=method)
-    # dd        <- ifelse(gene==1 & test==1, c_alt*365/interval,c_tx*365/interval) #conditional drug cost
-    # tt        <- ifelse(test==1, c_t,0)
-    #     
-    # cc        <- mm %*% c(0,c_a+dd+tt,rep(dd,d_at*interval),c_bs+dd,dd,c_bd,0,0)
-    # ee        <- mm %*% c(1/interval,rep((1-d_a)/interval,d_at*interval),1/interval,(1-d_b)/interval,(1-d_b)/interval,0,0,0)
-    # cc        <- as.vector(cc) * v.dw
-    # ee        <- as.vector(ee) * v.dw
-    # c.test    <- mm[,"A1"]*tt*v.dw
-    # c.drug    <- mm %*% c(0,dd,rep(dd,d_at*interval),dd,dd,0,0,0)
-    # c.drug    <- as.vector(c.drug) * v.dw
-    #     
-    # possible  <- mm %*% c(1,rep(1,d_at*interval+1),1,1,0,0,0)
-    # possible  <- as.vector(possible) * v.dw
-    # fatal_b   <- sum(mm[n.t,c("BD1","BD2")])
-    # living    <- 1 - sum(mm[n.t,c("BD1","BD2","D")])
-    # disutil_a <- mm %*% c(0,rep(d_a,d_at*interval),0,0,0,0,0,0)
-    # disutil_a <- as.vector(disutil_a) * v.dw
-    # disutil_b <- mm %*% c(0,rep(0,d_at*interval+1),d_b,d_b,0,0,0)
-    # disutil_b <- as.vector(disutil_b) * v.dw
-    # c.treat   <- mm %*% c(0,c_a,rep(0,d_at*interval),c_bs,0,c_bd,0,0)
-    # c.treat   <-  as.vector(c.treat) * v.dw
-      
+    # conditional drug costs
+    dd        <- ifelse(gene==1 & test==1, c_alt*365/interval,c_tx*365/interval)
+    tt        <- ifelse(test==1, c_t,0)
+
+    living    <- sum(m.M[n.t, c("H", "A", "BS")])         # Proportion alive at end of sim
+    fatal_b   <- sum(m.M[n.t, "BD"])
+    possible  <- sum(dmm[,c("H", "A", "BS")]) / interval  # Sum of possible dQALY
+
+    # Discounted Costs    
+    c.test    <- tt   * sum(disc_acc(m.M, "CUM_T", v.dw, method)) 
+    c.drug    <- dd*sum(dmm[,c("A", "BS")]) / interval
+    c.treat   <- c_a  * sum(disc_acc(m.M, "CUM_A", v.dw, method)) +
+                 c_bs * sum(disc_acc(m.M, "CUM_B", v.dw, method)) + 
+                 c_bd * sum(disc_acc(m.M, "BD",    v.dw, method))
+
+    # FIXME: Temp hack, not correct
+    disutil_a <- d_a*sum(disc_acc(m.M, "CUM_A", v.dw, method))
+
+    # This is correct
+    disutil_b <- d_b*sum(dmm[,c("BS")]) / interval 
+
     list(
       m.M     = m.M,
       l.P     = l.P,
       mm      = mm,
-      results = c(dCOST       = sum(unlist(cc)),
-                  dQALY       = sum(unlist(ee)),
-                  possible    = sum(unlist(possible)),
-                  fatal_b     = unname(fatal_b),
-                  living      = unname(living),
-                  disutil_a   = sum(unlist(disutil_a)),
-                  disutil_b   = sum(unlist(disutil_b)),
-                  dCOST.test  = sum(unlist(c.test)),
-                  dCOST.drug  = sum(unlist(c.drug)),
-                  dCOST.treat = sum(unlist(c.treat)))
+      results = c(dCOST       = c.test+c.drug+c.treat,
+                  dQALY       = possible - disutil_a - disutil_b,
+                  possible    = possible,
+                  fatal_b     = fatal_b,
+                  living      = living,
+                  disutil_a   = disutil_a,
+                  disutil_b   = disutil_b,
+                  dCOST.test  = c.test,
+                  dCOST.drug  = c.drug,
+                  dCOST.treat = c.treat)
     )
   }) # Closes "with(params, {
 }
