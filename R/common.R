@@ -63,3 +63,7 @@ integrator <- function(x, method="beginning")
     apply(x, 2, function(y) alt_simp_coef(length(y)) * y)
   } else stop("undefined method") 
 }
+
+# Run a discounted integrator on differences in an accululator
+disc_acc <- function(m, cols, disc, method)
+  integrator(diag(disc) %*% rbind(m[1, cols, drop=FALSE], diff(m[,cols, drop=FALSE])), method=method)
