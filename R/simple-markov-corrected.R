@@ -155,5 +155,3 @@ markov_comb <- function(params, method="life-table")
 }
 
 
-
->>>>>>> 8b3d15382289d225e505d52dd4a98c81be0693fc
