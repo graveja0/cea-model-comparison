@@ -29,7 +29,13 @@ genModel <- function(t, y, params)
       b_d = r_b*p_bd*a_p +r_b*rr_b*p_bd*a_a,           # Deaths from Adverse Event
       b_c = r_b*(1-p_bd)*a_p +r_b*rr_b*(1-p_bd)*a_a,   # Cumulative Survived Adverse Events
       tests = p_o*r_a*h_u,                             # Cumulative Tests
-      dsc = -disc_rate*dsc                             # Discount Curve
+      dsc  = -disc_rate*dsc,                           # Discount Curve,
+      
+      # Testing Discounting in Diff Eq
+      da_c = r_a*h_u*dsc,                                   # Discounted Cumulatives Indications
+      db_c = (r_b*(1-p_bd)*a_p +r_b*rr_b*(1-p_bd)*a_a)*dsc, # Discounted Cumulative Adverse Survivals
+      db_d = (r_b*p_bd*a_p +r_b*rr_b*p_bd*a_a)*dsc,         # Discounted Cumulative Adverse Deaths
+      dtests = p_o*r_a*h_u*dsc                              # Discounted Cumulative Tests
     ))
   })
 }
@@ -45,14 +51,10 @@ deq_summary <- function(solution, params)
     test.cost <- c_t*(solution[1,"tests"]+sum(diff(solution[,"tests"])*solution[2:k,"dsc"]))
     
     # Compute dscounted Cost
-    # treatment.cost <-
-    #    c_a  *alt_simp(diff(solution[,"a_c"])*solution[2:k,"dsc"], 1) +
-    #    c_bs *alt_simp(diff(solution[,"b_c"])*solution[2:k,"dsc"], 1) +
-    #    c_bd *alt_simp(diff(solution[,"b_d"])*solution[2:k,"dsc"], 1)
     treatment.cost <-
-      c_a  * sum(disc_acc(solution, "a_c", solution[,"dsc"], "simpson")) +
-      c_bs * sum(disc_acc(solution, "b_c", solution[,"dsc"], "simpson")) +
-      c_bd * sum(disc_acc(solution, "b_d", solution[,"dsc"], "simpson"))
+      c_a  * solution[nrow(solution), "da_c"] +
+      c_bs * solution[nrow(solution), "db_c"] +
+      c_bd * solution[nrow(solution), "db_d"]
       
     drug.cost <-
       c_tx *365*alt_simp(solution[,"a_p"]*solution[,"dsc"], 1)*step +
@@ -91,8 +93,9 @@ deq_simulation <- function(params)
 {
   params$disc_rate <- inst_rate(1-1/(1 + params$disc), 1)
   
-  init  <- c(h_u=1, a_p=0, a_a=0, a_c=0, a_dp=0, a_da=0, a_ep=0, a_ea=0, b_p=0, b_a=0, b_d=0, b_c=0, tests=0, dsc=1)
-  
+  init  <- c(h_u=1, a_p=0, a_a=0, a_c=0, a_dp=0, a_da=0, a_ep=0, a_ea=0, b_p=0, b_a=0, b_d=0, b_c=0, tests=0, dsc=1,
+             da_c = 0, db_c = 0, db_d = 0, dtests = 0)
+
   times <- seq(0, params$horizon, by=params$resolution)
   
   dede(init, times, genModel, params)
