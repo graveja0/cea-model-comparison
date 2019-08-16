@@ -37,6 +37,7 @@ library(tangram)
 library(furrr)
 library(microbenchmark)
 library(kableExtra)
+library(gt)
 plan(multiprocess)
 source(here("R/plot-theme.R"))
 # conflicted::conflict_scout()
@@ -48,14 +49,15 @@ conflict_prefer("set_names", "magrittr")
 ```{r, message = FALSE, echo = FALSE, warning = FALSE}
 # Load modeling code
 # TEMPORARY
-alt_ext_simpson <- function(x) sum(c(17/48, 59/48, 43/48, 49/48, rep(1, length(x)-8), 49/48, 43/48, 59/48, 17/48)*x)
+#alt_ext_simpson <- function(x) sum(c(17/48, 59/48, 43/48, 49/48, rep(1, length(x)-8), 49/48, 43/48, 59/48, 17/48)*x)
 # END TEMPORARY
 source(here("R/common.R"))
 source(here("R/simple-params.R"))
 source(here("R/simple-des.R"))
 source(here("R/simple-deq.R"))
-
 source(here("R/simple-markov-heemod.R")) 
+source(here("R/simple-markov.R"))
+
 source(here("R/simple-microsim.R"))
 ```
 
@@ -72,31 +74,26 @@ tbl <-
   set_colnames(c("Parameter Description","Short Name","Value")) #%>% 
   #tangram(., as.character=TRUE, style="lancet", caption="Model Parameters",id = "params")
 
-kable(tbl) %>% 
-  as_image(width = 6, file = "figs/01_model-parameters.png")
-
-# html5(tbl,fragment = TRUE) %>% 
-#   as_image(width = 6, file = "figs/02_model-parameters.png")
-
+tbl %>% 
+  gt(rowname_col = "Parameter Description") %>% 
+  tab_header(
+    title = "Model Parameters"
+  ) %>% 
+  tab_options(
+    table.width = pct(75)
+  ) %>% 
+  gtsave(filename = "figs/01_model-parameters.png")
 ```
 
 ```{r, eval = TRUE, cache = FALSE}
-# set.seed(123)
-# des <- des_simulation(params); set.seed(123)
-# deq <- deq_simulation(params); set.seed(123)
-# mar <- markov_simulation(params); set.seed(123)
-
 icer_deq <- deq_icer(params)
-source(here("R/simple-markov.R")) 
-icer_mar <- markov_comb(params)
+icer_mar <- markov_comb(params) 
+names(icer_mar) = names(icer_deq)
 source(here("R/simple-markov-corrected.R"))
-icer_mar <- markov_comb(params)
+icer_mar_cor <- markov_comb(params) 
 
-# icer_deq; icer_deq[1] - icer_mar2[1]
-icer_des <- des_icer(params,N = 1e7)
-#icer_deq[1] - icer_des[1]
-
-icer_microsim <- microsim_icer(params)
+icer_des <- des_icer(params,N = 1e6, seed = 123)
+icer_microsim <- microsim_icer(params, N = 1e6, seed=123)
 
 icer_results <- 
   list("DEQ" = icer_deq,
@@ -112,12 +109,6 @@ icer_results %>%
 ## Base Case Results
 
 ```{r, eval = TRUE}
-
-# icer_deq = icer_results$DEQ
-# icer_des = icer_results$DES
-# icer_mar = icer_results$MAR
-# icer_micro = icer_results$MICRO
-
 base_case_result <- 
   icer_deq %>% 
     bind_rows(icer_mar) %>% 
@@ -154,13 +145,24 @@ table_main_results <-
   mutate(output = ifelse(model == "Differential Equations",output, "")) %>% 
   mutate_all(funs(as.character)) %>% 
   mutate_at(vars(ref,test), function(x) ifelse(is.na(x) | x=="NA", "",x)) %>% 
-  set_colnames(c("Outcome","Model Type","No Testing (ref.)","Genetic Testing","Incremental")) %>% 
-  tangram(., style= "Hmisc", caption="Base Case Results",id = "base_case")
+  set_colnames(c("Outcome","Model Type","No Testing (ref.)","Genetic Testing","Incremental")) #%>% 
+  #tangram(., style= "Hmisc", caption="Base Case Results",id = "base_case")
 
-table_main_results %>% 
-  html5(fragment=TRUE) %>% 
-  as_image(width = 6, file = "figs/01_main-results.png")
-
+table_main_results[,-1] %>% 
+  gt(rowname_col = "Model Type") %>% 
+  tab_row_group(rows = 1:4, group = "Mean QALYs") %>% 
+  tab_row_group(rows = 5:8, group = "Mean Costs") %>% 
+  tab_row_group(rows = 9:12, group = "ICER") %>% 
+  tab_row_group(rows = 13:16, group = "Net Monetary Benefit") %>% 
+  tab_footnote(footnote = "QALY = Quality-Adjusted Life Years", cells_group("Mean QALYs")) %>% 
+  tab_footnote(footnote = "ICER = Incremental Cost-Effectiveness Ratio", cells_group("ICER")) %>% 
+  #tab_source_note(source_note = "Source: Source") %>% 
+  #tab_source_note(source_note = "Note: Another note")  %>% 
+  tab_options(
+    table.width = pct(55)
+  ) %>% 
+  gtsave(filename = "figs/01_main-results.png")
+  
 ```
 
 
@@ -176,19 +178,67 @@ icer_des_N <-
  bind_rows()
 icer_des_N %>% write_rds("output/icer_des_N.rds")
 
-icer_microsim_N <-
-sample_sizes %>%
- future_map(~(microsim_icer(params,seed=123,N=.x) %>% t() %>% data.frame() %>% mutate(N = .x)))  %>%
- bind_rows()
-icer_microsim_N %>% write_rds("output/icer_microsim_N.rds")
-
-
 icer_des_N <- read_rds("output/icer_des_N.rds")
-icer_microsim_N <- read_rds("output/icer_microsim_N.rds")
 
-labels <- log10(des_sample_sizes)
+# Get Microsimulation Model Runs (batchs of 1k)
+load(here("output/microsim-results/microsim_1b_yearly.rda"))
+icer_microsim_1y <- runs
+
+
+load(here("output/microsim-results/microsim_1b_daily.rda"))
+icer_microsim_1d <- runs
+
+
+get_microsim_nmb <- function(df, n, seed = 123, wtp = params$wtp) {
+  set.seed(seed)
+  sampled_rows <- sample(1:nrow(df),n/1e3, replace = TRUE)
+  tmp <- apply(df[sampled_rows,] ,2, mean)
+  nmb <- unname((tmp['dCOST.ref'] - tmp['dCOST.test']) + wtp*(tmp['dQALY.test'] - tmp['dQALY.ref']))
+  nmb.test <- wtp*(tmp['dQALY.test']) -  (tmp['dCOST.test'])
+  nmb.ref <- wtp*(tmp['dQALY.ref']) -  (tmp['dCOST.ref'])
+  icer <- unname((tmp['dCOST.test'] - tmp['dCOST.ref']) / (tmp['dQALY.test'] - tmp['dQALY.ref']))
+  return(c(nmb))
+}
+
+micro_sample_sizes = seq(6,10.5,0.25)
+
+icer_micro_N <- 
+  micro_sample_sizes %>% 
+  map(~(icer_microsim_1y %>% 
+  get_microsim_nmb(n = 10^(.x)))) %>% 
+  set_names(micro_sample_sizes) %>% 
+  bind_rows() %>% 
+  t() %>% 
+  data.frame() %>% 
+  rownames_to_column(var = "N") %>% 
+  set_names(c("N","NMB")) %>% 
+  na.omit() %>% 
+  mutate(N = 10^as.numeric(paste0(N))) %>% 
+  tbl_df()
+
+icer_micro1d_N <- 
+  micro_sample_sizes %>% 
+  map(~(icer_microsim_1d %>% 
+  get_microsim_nmb(n = 10^(.x)))) %>% 
+  set_names(micro_sample_sizes) %>% 
+  bind_rows() %>% 
+  t() %>% 
+  data.frame() %>% 
+  rownames_to_column(var = "N") %>% 
+  set_names(c("N","NMB")) %>% 
+  na.omit() %>% 
+  mutate(N = 10^as.numeric(paste0(N))) %>% 
+  tbl_df()
+
+des_sample_sizes <- icer_des_N$N
+
+labels <- seq(2,10.5,0.5) #log10(des_sample_sizes)
 labels[(labels - floor(labels)) != 0] <- ""
 
+icer_micro_N_final <- 
+  icer_micro_N %>% 
+  mutate(cycle = "Yearly Cycle") %>% 
+  bind_rows(icer_micro1d_N %>% mutate(cycle = "Daily Cycle")) 
 
 icer_des_N %>% 
   ggplot(aes(x=N,y=NMB)) +
@@ -198,13 +248,12 @@ icer_des_N %>%
   geom_hline(aes(yintercept = icer_mar["NMB"]),lty=2,colour="red") +
   ylab("NMB\n(Genotype vs. Reference)") + 
   xlab("Number of Simulated Patients\n(log10)") + 
-  scale_x_continuous(breaks = des_sample_sizes, labels =labels, trans="log10") + 
+  scale_x_continuous(breaks = 10^seq(2,10.5,0.5), labels = labels, trans="log10") + 
   annotate("text",y=icer_deq[["NMB"]],x=1e3,label = "DEQ: NMB",hjust=0) +
   annotate("text",y=icer_mar[["NMB"]],x=10^2,label = "Markov: NMB",hjust=0,colour="red") +
-  ylim(c(-300,300)) + 
-  geom_point(data = icer_microsim_N ,pch=2) 
-  #ylim(c(-1))
-ggsave(filename = here("figs/01_NMB-by-des-sample-size.png"),dpi = 300, scale =1,width = 12, height=12)
+  ylim(c(-1000,1000)) + 
+  geom_point(data = icer_micro_N_final, aes(colour = cycle)) 
+
 ```
 
 ```{r}
