@@ -27,23 +27,24 @@ markov_corr_tp <- function(params, v.n, t)
     tr["A", "D"]  <- r.death
       
     # Post adverse event to secular death
-    tr["BS","D"]  <- r.death
+    tr["BS","BSD"]  <- r.death
     
     diag(tr)      <- -rowSums(tr)        # Markovian rate specification
       
     # Add accumulators
     tr["H", "CUM_A"]   <- tr["H", "A"]        # Accumulator for A is non-Markovian
-    tr["A", "CUM_BS"]  <- rr*(1-p_bd)*r_b     # Accumulator for B is non-Markovian
+    #tr["A", "CUM_BS"]  <- rr*r_b*(1-p_bd)     # Accumulator for B is non-Markovian
     tr["H", "CUM_T"]   <- p_o*tr["H", "A"]    # Accumulator for testing is non-Markovian
     
-    # b                  <- -disc_rate
-    # eta                <- 1/b
-    # eff_disc           <- -log((exp(-eta)*exp(b*(t-1)))/(exp(-eta)*exp(b*t)))
-    eff_disc           <- (exp(-disc_rate*(t-1)) - exp(-disc_rate*t))/disc_rate
-    tr["A", "DCUM_BS"] <- rr*(1-p_bd)*r_b*eff_disc
-    
-    as.matrix(expm(tr))
+    x <- as.matrix(expm(tr))
 
+    # Attempted modification for accurate discounting integration
+    eff_disc             <- (exp(-disc_rate*(t-1)) - exp(-disc_rate*t))/disc_rate
+    x["A", "CUM_BS"]    <- x["A", "BSD"]+x["A", "BS"]
+    x["H", "CUM_BS"]    <- x["H", "BSD"]+x["H", "BS"]
+    x["A", "DCUM_BS"]   <- eff_disc*x["A", "CUM_BS"]
+    x["H", "DCUM_BS"]   <- eff_disc*x["H", "CUM_BS"]
+    x
   })
 }
 
@@ -55,7 +56,7 @@ markov_corr_sim <- function(params)
         
     #### 1. Model Setting ####
     n.t       <- horizon*interval          # number of cycles
-    v.n       <- c("H", "A", "BS", "BD", "D", "CUM_A", "CUM_BS", "CUM_T", "DCUM_BS")  # state names, and accumulators
+    v.n       <- c("H", "A", "BS", "BD", "D", "BSD", "CUM_A", "CUM_BS", "CUM_T", "DCUM_BS")  # state names, and accumulators
     n.s       <- length(v.n)               # number of states
         
     # transition probability matrix list
@@ -90,30 +91,32 @@ markov_corr <- function(params, N=NULL, gene=0, test=0, method="beginning")
   # To Debug
   # sapply(names(params), function(n) assign(n, params[[n]], envir=baseenv()))
   with(params, {
-        
+
     n.t <- dim(m.M)[1]
     #### 5. Computation ####
     d.r  <- inst_rate(1-1/(1 + params$disc), 1)
-    v.dw <- -diff(exp(-d.r * (0:(n.t))))/d.r # calculate discount weights for costs for each cycle based on discount rate d.r
+    #v.dw <- -diff(exp(-d.r * (0:(n.t))))/d.r # calculate discount weights for costs for each cycle based on discount rate d.r
+    #v.dw <- c(1,(exp(-d.r*(0:(n.t-2))) - exp(-d.r*(1:(n.t-1))))/d.r)
+    v.dw <- exp( 0:(n.t-1) * -d.r)
 
     # adjust counts using integration methods
     mm        <- integrator(m.M,                method=method) # Total counts
     dmm       <- integrator(diag(v.dw) %*% m.M, method=method) # Discounted counts
 
     # conditional drug costs
-    dd        <- ifelse(gene==1 & test==1, c_alt*365/interval,c_tx*365/interval)
+    dd        <- ifelse(gene==1 & test==1, c_alt*365/interval, c_tx*365/interval)
     tt        <- ifelse(test==1, c_t,0)
 
     living    <- sum(m.M[n.t, c("H", "A", "BS")])         # Proportion alive at end of sim
-    fatal_b   <- sum(m.M[n.t, "BD"])
+    fatal_b   <- sum(m.M[n.t, c("BD")])
     possible  <- sum(dmm[,c("H", "A", "BS")]) / interval  # Sum of possible dQALY
 
     # Discounted Costs    
     c.test    <- tt   * sum(disc_acc(m.M, "CUM_T", v.dw, method)) 
-    c.drug    <- dd*sum(dmm[,c("A", "BS")]) / interval
-    c.treat   <- c_a  * sum(disc_acc(m.M, "CUM_A", v.dw, method)) +
+    c.drug    <- dd   * sum(dmm[,c("A", "BS")]) 
+    c.treat   <- c_a  * sum(disc_acc(m.M, "CUM_A",  v.dw, method)) +
                  c_bs * sum(disc_acc(m.M, "CUM_BS", v.dw, method)) + 
-                 c_bd * sum(disc_acc(m.M, "BD",    v.dw, method))
+                 c_bd * sum(disc_acc(m.M, "BD",     v.dw, method))
 
     # FIXME: Temp hack, not correct
     disutil_a <- d_a*sum(disc_acc(m.M, "CUM_A", v.dw, method))

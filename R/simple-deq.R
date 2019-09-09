@@ -84,7 +84,10 @@ deq_summary <- function(solution, params)
       disutil_b   = unname(disB),
       dCOST.test  = unname(test.cost),
       dCOST.drug  = unname(drug.cost),
-      dCOST.treat = unname(treatment.cost)
+      dCOST.treat = unname(treatment.cost),
+      dCOST.a     = unname(c_a  * solution[nrow(solution), "da_c"]),
+      dCOST.bs    = unname(c_bs * solution[nrow(solution), "db_c"]),
+      dCOST.bd    = unname(c_bd * solution[nrow(solution), "db_d"])
     )
   })
 }
@@ -97,6 +100,8 @@ deq_simulation <- function(params)
              da_c = 0, db_c = 0, db_d = 0, dtests = 0)
 
   times <- seq(0, params$horizon, by=params$resolution)
+  if(abs(tail(times,1) - params$horizon) > (params$resolution/2))
+    times <- c(times, params$horizon)
   
   dede(init, times, genModel, params)
 }
