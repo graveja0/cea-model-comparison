@@ -131,8 +131,8 @@ markov_corr <- function(params, N=NULL, gene=0, test=0, method="beginning")
                  c_bs * sum(disc_acc(m.M, "CUM_BS", v.dw, method)) + 
                  c_bd * sum(disc_acc(m.M, "BD",     v.dw, method))
 
-    # FIXME: Temp hack, not correct
-    disutil_a <- d_a*sum(disc_acc(m.M, "CUM_A", v.dw, method))
+    
+    disutil_a <- d_a*sum(dmm[,"TUN"])
 
     # This is correct
     disutil_b <- d_b*sum(dmm[,c("BS")]) / interval 
