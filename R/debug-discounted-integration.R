@@ -11,9 +11,13 @@ m.M <- mc$m.M
 
 ds  <- deq_simulation(params)
 
+mc$results
+deq_summary(ds, params)
+
 sapply(names(params), function(n) assign(n, params[[n]], envir=baseenv()))
 n.t       <- horizon*interval
 d.r  <- inst_rate(1-1/(1 + params$disc), 1)
+#v.dw <- c(1,(exp(-d.r*(0:(n.t-2))) - exp(-d.r*(1:(n.t-1))))/d.r)
 v.dw <- -diff(exp(-d.r * (0:(n.t+1))))/d.r # calculate discount weights for costs for each cycle based on discount rate d.r
 
 # Discounted accumulators
@@ -77,8 +81,6 @@ cat("Rel Error", (mc$results[['living']] - deq_summary(ds, params)[['living']]) 
 mc$results[['living']]
 deq_summary(ds, params)[['living']]
 
-mc$results
-deq_summary(ds, params)
 
 plot(ds[,"time"], rowSums(ds[,c("h_u","a_p","a_a","b_p","b_a")])*ds[,c("dsc")], typ="l", xlab="time", ylab="discounted living")
 d.r  <- inst_rate(1-1/(1 + params$disc), 1)

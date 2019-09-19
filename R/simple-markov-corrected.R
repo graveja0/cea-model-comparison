@@ -108,13 +108,12 @@ markov_corr <- function(params, N=NULL, gene=0, test=0, method="beginning")
     n.t <- dim(m.M)[1]
     #### 5. Computation ####
     d.r  <- inst_rate(1-1/(1 + params$disc), 1)
-    #v.dw <- -diff(exp(-d.r * (0:(n.t))))/d.r # calculate discount weights for costs for each cycle based on discount rate d.r
-    #v.dw <- c(1,(exp(-d.r*(0:(n.t-2))) - exp(-d.r*(1:(n.t-1))))/d.r)
-    v.dw <- exp( 0:(n.t-1) * -d.r)
+    v.dw <- (exp(-d.r*(0:(n.t-2))) - exp(-d.r*(1:(n.t-1))))/d.r
+    #v.dw <- exp( 0:(n.t-1) * -d.r)
 
     # adjust counts using integration methods
     mm        <- integrator(m.M,                method=method) # Total counts
-    dmm       <- integrator(diag(v.dw) %*% m.M, method=method) # Discounted counts
+    dmm       <- integrator(diag(exp( 0:(n.t-1) * -d.r)) %*% m.M, method=method) # Discounted counts
 
     # conditional drug costs
     dd        <- ifelse(gene==1 & test==1, c_alt*365/interval, c_tx*365/interval)
@@ -127,9 +126,9 @@ markov_corr <- function(params, N=NULL, gene=0, test=0, method="beginning")
     # Discounted Costs    
     c.test    <- tt   * sum(disc_acc(m.M, "CUM_T", v.dw, method)) 
     c.drug    <- dd   * sum(dmm[,c("A", "BS")]) 
-    c.treat   <- c_a  * sum(disc_acc(m.M, "CUM_A",  v.dw, method)) +
-                 c_bs * sum(disc_acc(m.M, "CUM_BS", v.dw, method)) + 
-                 c_bd * sum(disc_acc(m.M, "BD",     v.dw, method))
+    c.treat   <- c_a  * disc_acc(m.M, "CUM_A",  v.dw, method) +
+                 c_bs * disc_acc(m.M, "CUM_BS", v.dw, method) + 
+                 c_bd * disc_acc(m.M, "BD",     v.dw, method)
 
     
     disutil_a <- d_a*sum(dmm[,"TUN"])
@@ -149,7 +148,10 @@ markov_corr <- function(params, N=NULL, gene=0, test=0, method="beginning")
                   disutil_b   = disutil_b,
                   dCOST.test  = c.test,
                   dCOST.drug  = c.drug,
-                  dCOST.treat = c.treat)
+                  dCOST.treat = c.treat,
+                  dCOST.a     = c_a  * disc_acc(m.M, "CUM_A",  v.dw, method),
+                  dCOST.bs    = c_bs * disc_acc(m.M, "CUM_BS", v.dw, method),
+                  dCOST.bd    = c_bd * disc_acc(m.M, "BD",     v.dw, method))
     )
   }) # Closes "with(params, {
 }
