@@ -36,6 +36,13 @@ markov_corr_tp <- function(params, v.n, t)
     #tr["A", "CUM_BS"]  <- rr*r_b*(1-p_bd)     # Accumulator for B is non-Markovian
     tr["H", "CUM_T"]   <- p_o*tr["H", "A"]    # Accumulator for testing is non-Markovian
     
+    # Tunnel accumulator for A
+    tr["H", "TUN"]     <- tr["H", "A"]
+    tr["TUN", "PTUN"]  <- tr["A", "BS"]
+    tr["TUN", "PTUN"]  <- tr["A", "BD"]
+    tr["TUN", "PTUN"]  <- tr["A", "D"]
+    tr["TUN", "TUN"]   <- -sum(tr["A", c("BS", "BD", "D")])
+    
     x <- as.matrix(expm(tr))
 
     # Attempted modification for accurate discounting integration
@@ -44,6 +51,12 @@ markov_corr_tp <- function(params, v.n, t)
     x["H", "CUM_BS"]    <- x["H", "BSD"]+x["H", "BS"]
     x["A", "DCUM_BS"]   <- eff_disc*x["A", "CUM_BS"]
     x["H", "DCUM_BS"]   <- eff_disc*x["H", "CUM_BS"]
+    
+    # Leave tunnel state on yearly cycle (zero is null transfer back)
+    x["TUN", "TUN"]    <- 0
+    
+    # The alpha / beta was handled by the matrix exponent
+
     x
   })
 }
@@ -56,7 +69,7 @@ markov_corr_sim <- function(params)
         
     #### 1. Model Setting ####
     n.t       <- horizon*interval          # number of cycles
-    v.n       <- c("H", "A", "BS", "BD", "D", "BSD", "CUM_A", "CUM_BS", "CUM_T", "DCUM_BS")  # state names, and accumulators
+    v.n       <- c("H", "A", "BS", "BD", "D", "BSD", "CUM_A", "CUM_BS", "CUM_T", "DCUM_BS", "TUN", "PTUN")  # state names, and accumulators
     n.s       <- length(v.n)               # number of states
         
     # transition probability matrix list
