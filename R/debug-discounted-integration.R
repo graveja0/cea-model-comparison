@@ -8,11 +8,13 @@ params$p_g <- 0
 
 mc  <- markov_corr(params, method="simpson")
 m.M <- mc$m.M
-
 ds  <- deq_simulation(params)
+
 
 mc$results
 deq_summary(ds, params)
+
+round(100*(mc$results - deq_summary(ds, params)) / deq_summary(ds, params), 3)
 
 sapply(names(params), function(n) assign(n, params[[n]], envir=baseenv()))
 n.t       <- horizon*interval
