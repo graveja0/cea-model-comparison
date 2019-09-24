@@ -114,7 +114,7 @@ markov_corr <- function(params, N=NULL, gene=0, test=0, method="beginning")
     # adjust counts using integration methods
     mm        <- integrator(m.M,                method=method) # Total counts
     dmm       <- integrator(diag(exp( 0:(n.t-1) * -d.r)) %*% m.M, method=method) # Discounted counts
-
+    
     # conditional drug costs
     dd        <- ifelse(gene==1 & test==1, c_alt*365/interval, c_tx*365/interval)
     tt        <- ifelse(test==1, c_t,0)
@@ -131,9 +131,7 @@ markov_corr <- function(params, N=NULL, gene=0, test=0, method="beginning")
                  c_bd * disc_acc(m.M, "BD",     v.dw, method)
 
     
-    disutil_a <- d_a*sum(dmm[,"TUN"])
-
-    # This is correct
+    disutil_a <- d_a*sum(dmm[,"TUN"]) / interval
     disutil_b <- d_b*sum(dmm[,c("BS")]) / interval 
 
     list(
