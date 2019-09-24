@@ -106,3 +106,9 @@ plot(ds[,"time"], c(0,diff(ds[,"a_c"]))/(ds[2,"time"]-ds[1,"time"])*ds[,"dsc"], 
 
 plot(ds[,"time"], rowSums(ds[,c("a_da", "a_dp")]), type="l")
 points(0:40, m.M[,"TUN"])
+
+plot(ds[,"time"], ds[,c("dsc")]*rowSums(ds[,c("a_da", "a_dp")]), type="l", ylim=c(0, 0.0125))
+points(0:40, mc$dmm[,"TUN"])
+lines(0:40, mc$dmm[,"TUN"], col='red')
+
+
