@@ -14,7 +14,7 @@ markov_corr_tp <- function(params, v.n, t)
     r.death   <- inst_rate(gompertz_ratio2(t, interval, shape, rate), 1)
     rr        <- ifelse(p_g==1 & p_o==1, rr_b, 1)
 
-    # Always start on zeros
+    # Always start on zeros, continuous transition rates, i.e. tr
     tr <-  matrix(0, nrow = length(v.n), ncol = length(v.n), dimnames = list(v.n, v.n))
 
     # Health to Indication or secular death
@@ -29,29 +29,26 @@ markov_corr_tp <- function(params, v.n, t)
     # Post adverse event to secular death
     tr["BS","BSD"]  <- r.death
     
-    diag(tr)      <- -rowSums(tr)        # Markovian rate specification
+    diag(tr)      <- -rowSums(tr)        # Markovian rate specification for rates
       
-    # Add accumulators
+    # Add accumulators (Non-Markovian)
     tr["H", "CUM_A"]   <- tr["H", "A"]        # Accumulator for A is non-Markovian
-    #tr["A", "CUM_BS"]  <- rr*r_b*(1-p_bd)     # Accumulator for B is non-Markovian
     tr["H", "CUM_T"]   <- p_o*tr["H", "A"]    # Accumulator for testing is non-Markovian
     
     # Tunnel accumulator for A
     tr["H", "TUN"]     <- tr["H", "A"]
-    tr["TUN", "PTUN"]  <- tr["A", "BS"]
+    tr["TUN", "PTUN"]  <- tr["A", "BS"] # PTUN is just used as an outbound bucket
     tr["TUN", "PTUN"]  <- tr["A", "BD"]
     tr["TUN", "PTUN"]  <- tr["A", "D"]
-    tr["TUN", "TUN"]   <- -sum(tr["A", c("BS", "BD", "D")])
+    tr["TUN", "TUN"]   <- -sum(tr["A", c("BS", "BD", "D")]) # semi-Markovian
     
     x <- as.matrix(expm(tr))
 
+    # Adding skip overs back to probabilities for the accumulators
     # Attempted modification for accurate discounting integration
-    eff_disc             <- (exp(-disc_rate*(t-1)) - exp(-disc_rate*t))/disc_rate
     x["A", "CUM_BS"]    <- x["A", "BSD"]+x["A", "BS"]
     x["H", "CUM_BS"]    <- x["H", "BSD"]+x["H", "BS"]
-    x["A", "DCUM_BS"]   <- eff_disc*x["A", "CUM_BS"]
-    x["H", "DCUM_BS"]   <- eff_disc*x["H", "CUM_BS"]
-    
+
     # Leave tunnel state on yearly cycle (zero is null transfer back)
     x["TUN", "TUN"]    <- 0
     
@@ -69,7 +66,7 @@ markov_corr_sim <- function(params)
         
     #### 1. Model Setting ####
     n.t       <- horizon*interval          # number of cycles
-    v.n       <- c("H", "A", "BS", "BD", "D", "BSD", "CUM_A", "CUM_BS", "CUM_T", "DCUM_BS", "TUN", "PTUN")  # state names, and accumulators
+    v.n       <- c("H", "A", "BS", "BD", "D", "BSD", "CUM_A", "CUM_BS", "CUM_T", "TUN", "PTUN")  # state names, and accumulators
     n.s       <- length(v.n)               # number of states
         
     # transition probability matrix list
@@ -109,8 +106,7 @@ markov_corr <- function(params, N=NULL, gene=0, test=0, method="beginning")
     #### 5. Computation ####
     d.r  <- inst_rate(1-1/(1 + params$disc), 1)
     v.dw <- (exp(-d.r*(0:(n.t-2))) - exp(-d.r*(1:(n.t-1))))/d.r
-    #v.dw <- exp( 0:(n.t-1) * -d.r)
-
+    
     # adjust counts using integration methods
     mm        <- integrator(m.M,                method=method) # Total counts
     dmm       <- integrator(diag(exp( 0:(n.t-1) * -d.r)) %*% m.M, method=method) # Discounted counts
@@ -139,6 +135,7 @@ markov_corr <- function(params, N=NULL, gene=0, test=0, method="beginning")
     list(
       m.M     = m.M,
       mm      = mm,
+      dmm     = dmm,
       results = c(dCOST       = c.test+c.drug+c.treat,
                   dQALY       = possible - disutil_a - disutil_b,
                   possible    = possible,

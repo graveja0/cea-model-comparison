@@ -68,6 +68,4 @@ integrator <- function(x, method="beginning")
 disc_acc <- function(m, cols, disc, method)
 {
   sum(diag(disc) %*% diff(m[,cols, drop=FALSE]))
-  #sum(diag(disc) %*% rbind(m[1, cols, drop=FALSE], diff(m[,cols, drop=FALSE])))
-  #sum(integrator(diag(disc) %*% rbind(m[1, cols, drop=FALSE], diff(m[,cols, drop=FALSE])), method=method))
 }
