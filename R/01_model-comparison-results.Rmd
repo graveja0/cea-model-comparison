@@ -38,6 +38,10 @@ library(microbenchmark)
 library(kableExtra)
 library(gt)
 source(here("R/plot-theme.R"))
+  library(tcltk)
+  library(iterators)
+library(parallel)
+library(doParallel)
 # conflicted::conflict_scout()
 # heemood and purrr: modify
 conflict_prefer("filter", "dplyr")
@@ -530,10 +534,8 @@ icer_des_N <- read_rds("output/icer_des_N.rds")
 load(here("output/microsim-results/microsim_1b_yearly.rda"))
 icer_microsim_1y <- runs
 
-
 load(here("output/microsim-results/microsim_1b_daily.rda"))
 icer_microsim_1d <- runs
-
 
 get_microsim_nmb <- function(df, n, seed = 123, wtp = params$wtp) {
   set.seed(seed)
