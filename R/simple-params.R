@@ -175,5 +175,10 @@ params_psa_realistic <- list(
 
 
 
+#params calcualted based on other parameter values
+params_psa_realistic_depend <- list(
+  r_a = function(x) inst_rate(x$r_a_pct/100,x$r_a_dur),
+  r_b = function(x) inst_rate(x$r_b_pct/100,x$r_b_dur)
+)
 
 

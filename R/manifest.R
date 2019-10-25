@@ -44,6 +44,13 @@ get_params <-  function(x,params) {
   ))
 } 
 
+#this function add calculated parameters to param list from halton draw
+get_params2 <-  function(x,params) {
+  c(x,map(params,~(
+    .x(x)
+  )))
+} 
+
 dist_lut <- c("qnorm" = "Normal",
               "qunif" = "Uniform",
               "qnorm01" = "Normal",
