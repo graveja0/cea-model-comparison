@@ -78,18 +78,33 @@ tbl %>%
 ## Base Case Results
 
 ```{r base-case-results, eval = TRUE, cache = FALSE}
+source("R/simple-params.R")
+params_orig <- params
 
 icer_deq <- deq_icer(params)
-icer_mar <- markov_comb(params) 
+icer_mar <- markov_comb(params, parallel = TRUE) 
 icer_mar_corr <- markov_comb_corr(params)
+params$horizon = 10
+icer_mar10_1y_corr <- markov_comb_corr(params)
+params$interval = 365
+icer_mar10_1d_corr <- markov_comb_corr(params) 
+
+
+Sys.setenv(R_MAX_VSIZE = 16e9)
+icer_mar1d <- markov_comb(params) 
+params$interval = 100
+icer_mar1y <- markov_comb(params) 
+
+icer_mar1d_corr <- markov_comb_corr(params)
+
 icer_des <- des_icer(params,N = 1e6, seed = 123)
 icer_microsim <- microsim_icer(params, N = 1e6, seed=123)
 
 names(icer_mar) <- names(icer_mar_corr) <- names(icer_des) <- names(icer_microsim) <- names(icer_deq)
 icer_results <- 
   list("DEQ" = icer_deq,
-       "MAR" = icer_mar,
-       "COR_MAR" = icer_mar_corr,
+       "MRKCHT_UADJ" = icer_mar,
+       "MRKCHT_EMB" = icer_mar_corr,
        "DES" = icer_des,
        "MICRO" = icer_microsim)
 icer_results %>% 
@@ -101,7 +116,7 @@ base_case_result <-
     bind_rows(icer_mar_corr) %>% 
     bind_rows(icer_des) %>% 
     bind_rows(icer_microsim) %>% 
-    mutate(model = c("DEQ","MAR","COR-MAR","DES","MICRO")) %>% 
+    mutate(model = c("DEQ","MRKCHT_UNADJ","MRKCHT_EMB","DES","MICRO")) %>% 
     select(model,ICER,NMB, everything()) %>% 
     gather(output, value, -model) %>% 
     tbl_df() %>% 
@@ -113,8 +128,8 @@ table_main_results <-
   spread(strategy,value) %>% 
   mutate(output = factor(output,levels = c("dQALY","dCOST"), 
                          labels = c("Mean QALYs","Mean Costs"))) %>% 
-  mutate(model = factor(model, levels = c("DEQ","DES","MAR","COR-MAR","MICRO"), 
-                        labels = c("Differential Equations","Discrete Event Simulation","Markov Cohort","Markov Cohort - Corrected","Individual Microsimulation"))) %>% 
+  mutate(model = factor(model, levels = c("DEQ","DES","MRKCHT_UNADJ","MRKCHT_EMB","MICRO"), 
+                        labels = c("Differential Equations","Discrete Event Simulation","Markov Cohort - Unadjusted","Markov Cohort - Embedded","Individual Microsimulation"))) %>% 
   arrange(output,model) %>% 
   select(output,model,ref,test) %>% 
   mutate(incremental = test - ref) %>% 
@@ -123,10 +138,8 @@ table_main_results <-
         filter(is.na(strategy)) %>% 
         mutate(output = factor(output,levels = c("dQALY","dCOST","ICER","NMB"), 
                                labels = c("Mean QALYs","Mean Costs","ICER","Net Monetary Benefit"))) %>% 
-        mutate(model = factor(model, levels = c("DEQ","DES","MAR","COR-MAR","MICRO"), 
-                          labels = c("Differential Equations","Discrete Event Simulation","Markov Cohort",
-                                     "Markov Cohort - Corrected",
-                                     "Individual Microsimulation"))) %>% 
+        mutate(model = factor(model, levels = c("DEQ","DES","MRKCHT_UNADJ","MRKCHT_EMB","MICRO"), 
+                          labels = c("Differential Equations","Discrete Event Simulation","Markov Cohort - Unadjusted","Markov Cohort - Embedded","Individual Microsimulation"))) %>% 
         select(model,output,incremental=value)
   ) %>% 
   mutate_at(vars(ref,test,incremental),function(x) ifelse(abs(x)<100,round(x,3),round(x,0))) %>%  
@@ -144,10 +157,11 @@ table_main_results[,-1] %>%
   tab_row_group(rows = 16:20, group = "Net Monetary Benefit") %>% 
   tab_footnote(footnote = "QALY = Quality-Adjusted Life Years", cells_group("Mean QALYs")) %>% 
   tab_footnote(footnote = "ICER = Incremental Cost-Effectiveness Ratio", cells_group("ICER")) %>% 
+  tab_footnote(footnote = "Willingness to Pay = $100,000 per QALY",cells_group("Net Monetary Benefit")) %>% 
   #tab_source_note(source_note = "Source: Source") %>% 
   #tab_source_note(source_note = "Note: Another note")  %>% 
   tab_options(
-    table.width = pct(55)
+    table.width = pct(75)
   ) %>% 
   gtsave(filename = "figs/01_main-results.png")
   

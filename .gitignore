@@ -2,10 +2,14 @@
 .Rhistory
 .RData
 .Ruserdata
+R/ignore/
 ignore/
-R/.Rapp.history
 figs/
 manuscript/
 reference/
-
+.DS_Store
+output/
+manuscript/
+R/scratch/
+figs/01_main-results.png
 
