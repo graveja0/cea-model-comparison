@@ -81,23 +81,16 @@ tbl %>%
 source("R/simple-params.R")
 params_orig <- params
 
-icer_deq <- deq_icer(params)
-icer_mar <- markov_comb(params, parallel = TRUE) 
-icer_mar_corr <- markov_comb_corr(params)
 params$horizon = 10
-icer_mar10_1y_corr <- markov_comb_corr(params)
+params$interval = 1
+icer_deq <- deq_icer(params)
+icer_mar <- markov_comb(params) 
+icer_mar_corr <- markov_comb_corr(params)
 params$interval = 365
-icer_mar10_1d_corr <- markov_comb_corr(params) 
+icer_mar_test <- markov_comb(params) 
+icer_mar_corr_test <- markov_comb_corr(params) 
 
-
-Sys.setenv(R_MAX_VSIZE = 16e9)
-icer_mar1d <- markov_comb(params) 
-params$interval = 100
-icer_mar1y <- markov_comb(params) 
-
-icer_mar1d_corr <- markov_comb_corr(params)
-
-icer_des <- des_icer(params,N = 1e6, seed = 123)
+icer_des <- des_icer(params,N = 1e7, seed = 123)
 icer_microsim <- microsim_icer(params, N = 1e6, seed=123)
 
 names(icer_mar) <- names(icer_mar_corr) <- names(icer_des) <- names(icer_microsim) <- names(icer_deq)

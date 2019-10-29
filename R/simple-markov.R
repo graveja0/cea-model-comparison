@@ -56,7 +56,9 @@ markov0 <- function(params, N=NULL, gene=0, test=0, method="beginning")
     
     # transition probability array
     tp <-  matrix(0,nrow = n.s, ncol = n.s, dimnames = list(v.n, v.n))
-    l.P <- lapply(1:n.t, function(x)
+    
+    
+    l.P <- parallel::mclapply(1:n.t, function(x)
     {
       tp["H", "A1"] <- pA[x]
       tp["H", "D"]  <- p.HD[x]
