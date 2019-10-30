@@ -56,9 +56,9 @@ markov0 <- function(params, N=NULL, gene=0, test=0, method="beginning")
     
     # transition probability array
     tp <-  matrix(0,nrow = n.s, ncol = n.s, dimnames = list(v.n, v.n))
+    #l.P <- list()
     
-    
-    l.P <- parallel::mclapply(1:n.t, function(x)
+    get_transition_prob <- function(x)
     {
       tp["H", "A1"] <- pA[x]
       tp["H", "D"]  <- p.HD[x]
@@ -83,11 +83,41 @@ markov0 <- function(params, N=NULL, gene=0, test=0, method="beginning")
       tp["D","D"]     <- 1
       
       return(tp)
-    })
-    
+    }
+    # l.P <- parallel::mclapply(1:n.t, function(x)
+    # {
+    #   tp["H", "A1"] <- pA[x]
+    #   tp["H", "D"]  <- p.HD[x]
+    #   tp["H", "H"]  <- 1-pA[x]-p.HD[x]
+    #   
+    #   for(y in 1:(d_at*interval+1))
+    #   {
+    #     tp[paste0("A",y),"BS1"] <- pBS[x]  
+    #     tp[paste0("A",y),"BD1"] <- pBD[x]
+    #     tp[paste0("A",y),"D"]   <- p.HD[x]
+    #   }
+    #   for(y in 1:(d_at*interval))
+    #   {
+    #     tp[paste0("A",y), paste0("A",y+1)] <- 1-pBS[x]-pBD[x]-p.HD[x]
+    #   }
+    #   
+    #   tp[paste0("A", d_at*interval+1), paste0("A", d_at*interval+1)] <- 1-pBS[x]-pBD[x]-p.HD[x]
+    #   
+    #   tp["BS1","D"]   <- tp["BS2","D"]   <- p.HD[x]
+    #   tp["BS1","BS2"] <- tp["BS2","BS2"] <- 1-p.HD[x]
+    #   tp["BD1","BD2"] <- tp["BD2","BD2"] <- 1
+    #   tp["D","D"]     <- 1
+    #   
+    #   return(tp)
+    # })
+    # 
     #### 4. Run ####
-    for (t in 1:n.t)                        # loop through the number of cycles
-      m.M[t+1, ] <- m.M[t, ] %*% l.P[[t]] # estimate the Markov trace for cycle t + 1 using the t-th matrix from the probability array
+    for (t in 1:n.t)   {
+      # loop through the number of cycles
+      l.P.tmp <- get_transition_prob(t)
+      #m.M[t+1, ] <- m.M[t, ] %*% l.P[[t]] # estimate the Markov trace for cycle t + 1 using the t-th matrix from the probability array
+      m.M[t+1, ] <- m.M[t, ] %*% l.P.tmp # estimate the Markov trace for cycle t + 1 using the t-th matrix from the probability array
+    }
     
     #### 5. Computation ####
     d.r   <- (1 + disc)^(1/interval)-1
@@ -120,7 +150,7 @@ markov0 <- function(params, N=NULL, gene=0, test=0, method="beginning")
     
     list(
       m.M     = m.M,
-      l.P     = l.P,
+      #l.P     = l.P,
       mm      = mm,
       results = c(dCOST       = sum(unlist(cc)),
                   dQALY       = sum(unlist(ee)),
