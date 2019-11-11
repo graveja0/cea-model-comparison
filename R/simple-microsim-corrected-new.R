@@ -122,7 +122,7 @@ ProbsA_corr <- function(M_t, t, gene, test) {
 
 
 ProbsBS_corr <- function(M_t, t, gene, test){
-    p <- matrix(0,nrow=length(M_t),ncol=1,dimnames=list(c(),c("BSD")))
+    p <- matrix(0,nrow=length(M_t),ncol=1,dimnames=list(c(),c("D")))
     if(test==1) {
         b0 <- !gene
         b1 <- gene
@@ -177,83 +177,92 @@ microsim_run_corr <- function(params, N = NULL, method="beginning")
         
         #### 3. Start Simultation ####
         # m.M: health state for each patient at each cycle
-        m.M  <- matrix(nrow = n.i, ncol = n.t + 1, 
+        m.M  <- matrix(nrow = n.i, ncol = 2, 
                        dimnames = list(paste(1:n.i),     # could name the rows ind1, ind2, ind3, etc.
-                                       paste("cycle", 0:n.t, sep = " ")))  # name the columns cycle0, cycle1, cycle2, cycle3, etc.
+                                       c("current","forward")))  # name the columns cycle0, cycle1, cycle2, cycle3, etc.
         
         m.M[, 1] <- v.M_Init         # initial health state for all individuals
         
-        # a.P <- array(0,                                          # track probs for validation
-        #              dim = c(n.i, 4, n.t),
-        #              dimnames = list(c(), c("A1","BS1","BD1","D"), 1:n.t))
+        zerocol <- as.data.frame(setNames(replicate(length(v.n),numeric(0), simplify = F),v.n))
+        ct <- vector("list",n.t)
+      
         
         # Time for-loop from cycle 1 through n.t
         for (t in 1:n.t)
         {
             ## Simulate Events ##
             # Default Update: if no events occur, health state remains unchanged
-            m.M[,t+1] = m.M[,t]
-            
-            # From H
-            fromH <- m.M[,t]=="H"
+          m.M[,2] = m.M[,1]
+          
+          # From H
+          fromH <- m.M[,1]=="H"
             if(sum(fromH) > 0)
             {
-                pH <- ProbsH_corr(m.M[,t][fromH],t,df.Pop$variant[fromH],p_o)
-                m.M[,t+1][fromH] <- draw.events(m.M[,t][fromH],pH)
+                pH <- ProbsH_corr(m.M[,1][fromH],t,df.Pop$variant[fromH],p_o)
+                m.M[,2][fromH] <- draw.events(m.M[,1][fromH],pH)
                 
                 # assign treatment upon indication
-                elig <- (m.M[,t]=="H" & m.M[,t+1]=="A1")
+                elig <- (m.M[,1]=="H" & m.M[,2]=="A1")
                 df.Pop$tested[elig] <- sample(c(TRUE,FALSE),sum(elig),prob=c(p_o,1-p_o),replace = TRUE)
                 df.Pop$treat[elig]  <- ifelse(df.Pop$tested[elig] & df.Pop$variant[elig],"Alternate","Primary")
             }
             
             # From A
-            fromA <- m.M[,t] %in% paste0("A",1:(d_at*interval+1))
+            fromA <- m.M[,1] %in% paste0("A",1:(d_at*interval+1))
             
             if(sum(fromA)>0) 
             {
-                pA <- ProbsA_corr(m.M[,t][fromA],t,df.Pop$variant[fromA],p_o)
+                pA <- ProbsA_corr(m.M[,1][fromA],t,df.Pop$variant[fromA],p_o)
                 
                 # move forward in A tunnel as needed
-                drawA <- draw.events(m.M[,t][fromA],pA)
+                drawA <- draw.events(m.M[,1][fromA],pA)
                 intunnel <- (substr(drawA,1,1)=="A")
                 ttunnel <- as.numeric(substring(drawA[intunnel],2)) # which tunnel cycle
                 if(any(ttunnel<=d_at*interval)) {
                     drawA[intunnel][ttunnel<=d_at*interval] <- paste0("A",ttunnel[ttunnel<=d_at*interval]+1)
                 }
-                m.M[,t+1][fromA] <- drawA
+                m.M[,2][fromA] <- drawA
                 #a.P[fromA,c("BS1","BD1","D"),t] <- pA
             }
             
             # From BS 
-            fromBS <- m.M[,t] %in% c("BS1","BS2") 
+            fromBS <- m.M[,1] %in% c("BS1","BS2") 
             if(sum(fromBS)>0)
             {
-                pBS <- ProbsBS_corr(m.M[,t][fromBS],t,df.Pop$variant[fromBS],p_o)
+                pBS <- ProbsBS_corr(m.M[,1][fromBS],t,df.Pop$variant[fromBS],p_o)
                 drawBS <- rbinom(n=length(pBS),size=1,prob=pBS)
-                m.M[,t+1][fromBS][drawBS==1] <- "D"
-                m.M[,t+1][fromBS][drawBS==0] <- "BS2"
+                m.M[,2][fromBS][drawBS==1] <- "D"
+                m.M[,2][fromBS][drawBS==0] <- "BS2"
                 
                 #a.P[fromBS,"D",t] <- pBS
             }
             
             # From BD
-            m.M[,t+1][m.M[,t] == "BD1"] <- "BD2"
-            m.M[,t+1][m.M[,t] == "BSD"] <- "D"
+            m.M[,2][m.M[,1] == "BD1"] <- "BD2"
+            m.M[,2][m.M[,1] == "BSD"] <- "D"
+            
+            #summarize counts at each cycle
+            pop.none      <- df.Pop[df.Pop$tested==FALSE,                            'name']
+            pop.test.prim <- df.Pop[df.Pop$tested==TRUE & df.Pop$treat=="Primary",   'name']
+            pop.test.alt  <- df.Pop[df.Pop$treat=="Alternate" | is.na(df.Pop$treat), 'name']
+            
+            ct[[t]] <- list(pop.none, pop.test.prim, pop.test.alt) %>% 
+              map(function(x) {
+                if(length(x)==0) {return(zerocol)} else {
+                  m.M[x,"forward"] %>% as.data.frame() %>% set_names("state") %>%
+                    mutate(state=factor(state,levels=v.n)) %>% 
+                    table() %>% as.data.frame() %>% spread_(".","Freq")
+                }
+              })
+            
+            ### reset matrix
+            m.M[,1] <- m.M[,2]
         }        
         
         
         ### compute C/E
-        zerocol <- as.data.frame(setNames(replicate(length(v.n),numeric(0), simplify = F),v.n))
+        mm <- map(1:3, function(x) map_df(1:n.t,~ct[[.x]][[x]]))
         
-        mm            <- as.data.frame.table(m.M)
-        names(mm)     <- c("name", "cycle", "state")
-        mm$cycle      <- as.integer(substring(mm$cycle,7))
-        mm$state      <- factor(mm$state, levels=v.n)
-        
-        pop.none      <- df.Pop[df.Pop$tested==FALSE,                            'name']
-        pop.test.prim <- df.Pop[df.Pop$tested==TRUE & df.Pop$treat=="Primary",   'name']
-        pop.test.alt  <- df.Pop[df.Pop$treat=="Alternate" | is.na(df.Pop$treat), 'name']
         cc            <- numeric(3)
         ee            <- numeric(3)
         c.test        <- numeric(3)
@@ -261,14 +270,15 @@ microsim_run_corr <- function(params, N = NULL, method="beginning")
         d.r           <- (1 + disc)^(1/interval)-1
         v.dwc         <- 1 / (1 + d.r) ^ (0:(n.t-1)) # calculate discount weights for costs for each cycle based on discount rate d.r
         v.dwe         <- v.dwc  # Use same discount for qaly
+
         
-        pops <- list(pop.none, pop.test.prim, pop.test.alt)
         for(i in 1:3)
         {
-            if(length(pops[[i]]) > 0)
-            {
+          if(nrow(mm[[i]]) > 0)
+          {
                 dd        <- (if(i==3) c_alt else c_tx)*365/interval
-                m1        <- as.matrix(integrator(as.data.frame.matrix(table(mm[mm$name %in% pops[[i]],-1])),method=method))
+                m0 <- rbind(c(sum(mm[[i]][1,]),rep(0,ncol(mm[[i]]))),mm[[i]])
+                m1        <- as.matrix(integrator(m0,method=method))
                 cc[i]     <- sum(as.vector(m1 %*% c(0,if(i==1) c_a+dd else c_a+dd+c_t,rep(dd,d_at*interval),c_bs+dd,dd,c_bd,0,0,c_bs)) * v.dwc)
                 ee[i]     <- sum(as.vector(m1 %*% c(1/interval,rep((1-d_a)/interval,d_at*interval),1/interval,(1-d_b)/interval,(1-d_b)/interval,0,0,0,0)) * v.dwe)
                 c.test[i] <- if(i==1) 0 else sum(m1[,"A1"]*c_t*v.dwc)
@@ -276,9 +286,13 @@ microsim_run_corr <- function(params, N = NULL, method="beginning")
             }
         }
         
+        tout  <- map(mm, function(x) mutate(x,cycle=as.integer(row.names(x)))) %>% do.call("bind_rows",.) %>% 
+          group_by(cycle) %>% summarise_all(sum) %>% select(-cycle)
+        mmm <- rbind(c(sum(tout[1,]),rep(0,ncol(tout[1,])-1)),tout) %>% 
+          integrator(method=method) %>% as.matrix()
+        
         #other
-        mmm       <- as.matrix(integrator(as.data.frame.matrix(table(mm[,-1])),method=method))
-        possible  <- mmm %*% c(1,rep(1,d_at*interval+1),1,1,0,0,0,0)
+possible  <- mmm %*% c(1,rep(1,d_at*interval+1),1,1,0,0,0,0)
         possible  <- as.vector(possible) * v.dwe
         fatal_b   <- sum(mmm[n.t,c("BD1","BD2")])
         living    <- n.i - sum(mmm[n.t,c("BD1","BD2","D","BSD")])
@@ -288,11 +302,11 @@ microsim_run_corr <- function(params, N = NULL, method="beginning")
         disutil_b <- as.vector(disutil_b) * v.dwe
         c.treat   <- mmm  %*% c(0,c_a,rep(0,d_at*interval),c_bs,0,c_bd,0,0,c_bs)
         c.treat   <- as.vector(c.treat) * v.dwc
-        
+
         list(
-            raw     = m.M,
+            raw_ct = mm,
+            count = mmm,
             pop     = df.Pop,
-            count   = all,
             results = c(dCOST       = sum(cc),
                         dQALY       = sum(ee),
                         possible    = sum(possible),
@@ -304,6 +318,8 @@ microsim_run_corr <- function(params, N = NULL, method="beginning")
                         dCOST.drug  = sum(c.drug),
                         dCOST.treat = sum(c.treat))/n.i
         )
+
+        
     })  
 }
 
