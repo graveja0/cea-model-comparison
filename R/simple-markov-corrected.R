@@ -42,7 +42,7 @@ markov_corr_tp <- function(params, v.n, t)
     tr["TUN", "PTUN"]  <- tr["A", "D"]
     tr["TUN", "TUN"]   <- -sum(tr["A", c("BS", "BD", "D")]) # semi-Markovian
     
-    x <- as.matrix(expm(tr))
+    x <- as.matrix(expm(tr/interval))
 
     # Adding skip overs back to probabilities for the accumulators
     # Attempted modification for accurate discounting integration
@@ -57,7 +57,7 @@ markov_corr_tp <- function(params, v.n, t)
     x
   })
 }
-
+  
 markov_corr_sim <- function(params)
 {
   # To Debug
