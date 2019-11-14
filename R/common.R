@@ -51,10 +51,10 @@ integrator <- function(x, method="beginning")
     n0 <- x[- nrow(x), ]
     n1 <- x[-1, ]
     (n0 + n1) / 2
-  } else if(method=="beginning")
+  } else if(method=="end")
   {
     x[-1, ]
-  } else if(method=="end")
+  } else if(method=="beginning")
   {
     x[- nrow(x), ]
   } else if(method=="simpson")
