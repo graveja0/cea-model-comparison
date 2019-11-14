@@ -161,8 +161,8 @@ markov_comb_corr <- function(params, method="life-table")
   o           <- params$p_o
   g           <- params$p_g
   wt          <- c(1-o,g*o,(1-g)*o)
-  dCOST.ref   <- ref1$results["dCOST"]
-  dQALY.ref   <- ref1$results["dQALY"]
+  dCOST.ref   <- unname(ref1$results["dCOST"])
+  dQALY.ref   <- unname(ref1$results["dQALY"])
   dCOST.test  <- sum(wt*c(ref1$results["dCOST"], test1$results["dCOST"], test2$results["dCOST"]))
   dQALY.test  <- sum(wt*c(ref1$results["dQALY"], test1$results["dQALY"], test2$results["dQALY"]))
         

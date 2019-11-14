@@ -5,17 +5,16 @@ editor_options:
   chunk_output_type: console
 ---
 
-```{r, echo = FALSE, message = FALSE, warning = FALSE}
+```{r setup, echo = FALSE, message = FALSE, warning = FALSE}
 knitr::opts_chunk$set(echo = FALSE)
 knitr::opts_chunk$set(message = FALSE)
 knitr::opts_chunk$set(warning = FALSE)
 options("scipen" = 100, "digits" = 5)
-```
 
-```{r, message = FALSE, warning = FALSE}
 options(warnPartialMatchAttr = FALSE,
         warnPartialMatchDollar = FALSE,
         warnPartialMatchArgs = FALSE)
+
 
 library(tidyverse)
 library(directlabels)
@@ -38,32 +37,24 @@ library(furrr)
 library(microbenchmark)
 library(kableExtra)
 library(gt)
-plan(multiprocess)
 source(here("R/plot-theme.R"))
+  library(tcltk)
+  library(iterators)
+library(parallel)
+library(doParallel)
+library(ggnewscale)
 # conflicted::conflict_scout()
 # heemood and purrr: modify
 conflict_prefer("filter", "dplyr")
 conflict_prefer("set_names", "magrittr")
-```
 
-```{r, message = FALSE, echo = FALSE, warning = FALSE}
-# Load modeling code
-# TEMPORARY
-#alt_ext_simpson <- function(x) sum(c(17/48, 59/48, 43/48, 49/48, rep(1, length(x)-8), 49/48, 43/48, 59/48, 17/48)*x)
-# END TEMPORARY
-source(here("R/common.R"))
-source(here("R/simple-params.R"))
-source(here("R/simple-des.R"))
-source(here("R/simple-deq.R"))
-source(here("R/simple-markov-heemod.R")) 
-source(here("R/simple-markov.R"))
 
-source(here("R/simple-microsim.R"))
+source(here::here("R/manifest.R"))
 ```
 
 ## Model Parameters 
 
-```{r, echo = FALSE}
+```{r parameter-table, echo = FALSE}
 tbl <- 
   params %>% unlist() %>% data.frame() %>% 
   rownames_to_column() %>% 
@@ -84,37 +75,41 @@ tbl %>%
   ) %>% 
   gtsave(filename = "figs/01_model-parameters.png")
 ```
+## Base Case Results
 
-```{r, eval = TRUE, cache = FALSE}
+```{r base-case-results, eval = TRUE, cache = FALSE}
+source("R/simple-params.R")
+params_orig <- params
+
+params$horizon = 10
+params$interval = 1
 icer_deq <- deq_icer(params)
 icer_mar <- markov_comb(params) 
-names(icer_mar) = names(icer_deq)
-source(here("R/simple-markov-corrected.R"))
-icer_mar_cor <- markov_comb(params) 
+icer_mar_corr <- markov_comb_corr(params)
+params$interval = 365
+icer_mar_test <- markov_comb(params) 
+icer_mar_corr_test <- markov_comb_corr(params) 
 
-icer_des <- des_icer(params,N = 1e6, seed = 123)
+icer_des <- des_icer(params,N = 1e7, seed = 123)
 icer_microsim <- microsim_icer(params, N = 1e6, seed=123)
 
+names(icer_mar) <- names(icer_mar_corr) <- names(icer_des) <- names(icer_microsim) <- names(icer_deq)
 icer_results <- 
   list("DEQ" = icer_deq,
-       "MAR" = icer_mar,
+       "MRKCHT_UADJ" = icer_mar,
+       "MRKCHT_EMB" = icer_mar_corr,
        "DES" = icer_des,
        "MICRO" = icer_microsim)
 icer_results %>% 
   write_rds(here("output/icer-results.R"))
 
-```
-
-
-## Base Case Results
-
-```{r, eval = TRUE}
 base_case_result <- 
   icer_deq %>% 
     bind_rows(icer_mar) %>% 
+    bind_rows(icer_mar_corr) %>% 
     bind_rows(icer_des) %>% 
     bind_rows(icer_microsim) %>% 
-    mutate(model = c("DEQ","MAR","DES","MICRO")) %>% 
+    mutate(model = c("DEQ","MRKCHT_UNADJ","MRKCHT_EMB","DES","MICRO")) %>% 
     select(model,ICER,NMB, everything()) %>% 
     gather(output, value, -model) %>% 
     tbl_df() %>% 
@@ -126,8 +121,8 @@ table_main_results <-
   spread(strategy,value) %>% 
   mutate(output = factor(output,levels = c("dQALY","dCOST"), 
                          labels = c("Mean QALYs","Mean Costs"))) %>% 
-  mutate(model = factor(model, levels = c("DEQ","DES","MAR","MICRO"), 
-                        labels = c("Differential Equations","Discrete Event Simulation","Markov Cohort","Individual Microsimulation"))) %>% 
+  mutate(model = factor(model, levels = c("DEQ","DES","MRKCHT_UNADJ","MRKCHT_EMB","MICRO"), 
+                        labels = c("Differential Equations","Discrete Event Simulation","Markov Cohort - Unadjusted","Markov Cohort - Embedded","Individual Microsimulation"))) %>% 
   arrange(output,model) %>% 
   select(output,model,ref,test) %>% 
   mutate(incremental = test - ref) %>% 
@@ -136,9 +131,8 @@ table_main_results <-
         filter(is.na(strategy)) %>% 
         mutate(output = factor(output,levels = c("dQALY","dCOST","ICER","NMB"), 
                                labels = c("Mean QALYs","Mean Costs","ICER","Net Monetary Benefit"))) %>% 
-        mutate(model = factor(model, levels = c("DEQ","DES","MAR","MICRO"), 
-                          labels = c("Differential Equations","Discrete Event Simulation","Markov Cohort",
-                                     "Individual Microsimulation"))) %>% 
+        mutate(model = factor(model, levels = c("DEQ","DES","MRKCHT_UNADJ","MRKCHT_EMB","MICRO"), 
+                          labels = c("Differential Equations","Discrete Event Simulation","Markov Cohort - Unadjusted","Markov Cohort - Embedded","Individual Microsimulation"))) %>% 
         select(model,output,incremental=value)
   ) %>% 
   mutate_at(vars(ref,test,incremental),function(x) ifelse(abs(x)<100,round(x,3),round(x,0))) %>%  
@@ -150,295 +144,280 @@ table_main_results <-
 
 table_main_results[,-1] %>% 
   gt(rowname_col = "Model Type") %>% 
-  tab_row_group(rows = 1:4, group = "Mean QALYs") %>% 
-  tab_row_group(rows = 5:8, group = "Mean Costs") %>% 
-  tab_row_group(rows = 9:12, group = "ICER") %>% 
-  tab_row_group(rows = 13:16, group = "Net Monetary Benefit") %>% 
+  tab_row_group(rows = 1:5, group = "Mean QALYs") %>% 
+  tab_row_group(rows = 6:10, group = "Mean Costs") %>% 
+  tab_row_group(rows = 11:15, group = "ICER") %>% 
+  tab_row_group(rows = 16:20, group = "Net Monetary Benefit") %>% 
   tab_footnote(footnote = "QALY = Quality-Adjusted Life Years", cells_group("Mean QALYs")) %>% 
   tab_footnote(footnote = "ICER = Incremental Cost-Effectiveness Ratio", cells_group("ICER")) %>% 
+  tab_footnote(footnote = "Willingness to Pay = $100,000 per QALY",cells_group("Net Monetary Benefit")) %>% 
   #tab_source_note(source_note = "Source: Source") %>% 
   #tab_source_note(source_note = "Note: Another note")  %>% 
   tab_options(
-    table.width = pct(55)
+    table.width = pct(75)
   ) %>% 
   gtsave(filename = "figs/01_main-results.png")
   
 ```
 
-
-## Examine Stochasticity
-
-```{r}
-
-sample_sizes <- 10^c(2, 2.25, 2.5, 2.75 , 3, 3.25, 3.5, 3.75, 4, 4.25, 4.5, 4.75, 5 , 5.25, 5.5, 5.75, 6, 6.25, 6.5, 6.75, 7,7.25,7.5,7.75,8)
-
-icer_des_N <-
- sample_sizes %>%
- future_map(~(des_icer(params,seed=123,N=.x) %>% t() %>% data.frame() %>% mutate(N = .x)))  %>%
- bind_rows()
-icer_des_N %>% write_rds("output/icer_des_N.rds")
-
-icer_des_N <- read_rds("output/icer_des_N.rds")
-
-# Get Microsimulation Model Runs (batchs of 1k)
-load(here("output/microsim-results/microsim_1b_yearly.rda"))
-icer_microsim_1y <- runs
-
-
-load(here("output/microsim-results/microsim_1b_daily.rda"))
-icer_microsim_1d <- runs
-
-
-get_microsim_nmb <- function(df, n, seed = 123, wtp = params$wtp) {
-  set.seed(seed)
-  sampled_rows <- sample(1:nrow(df),n/1e3, replace = TRUE)
-  tmp <- apply(df[sampled_rows,] ,2, mean)
-  nmb <- unname((tmp['dCOST.ref'] - tmp['dCOST.test']) + wtp*(tmp['dQALY.test'] - tmp['dQALY.ref']))
-  nmb.test <- wtp*(tmp['dQALY.test']) -  (tmp['dCOST.test'])
-  nmb.ref <- wtp*(tmp['dQALY.ref']) -  (tmp['dCOST.ref'])
-  icer <- unname((tmp['dCOST.test'] - tmp['dCOST.ref']) / (tmp['dQALY.test'] - tmp['dQALY.ref']))
-  return(c(nmb))
-}
-
-micro_sample_sizes = seq(6,10.5,0.25)
-
-icer_micro_N <- 
-  micro_sample_sizes %>% 
-  map(~(icer_microsim_1y %>% 
-  get_microsim_nmb(n = 10^(.x)))) %>% 
-  set_names(micro_sample_sizes) %>% 
-  bind_rows() %>% 
-  t() %>% 
-  data.frame() %>% 
-  rownames_to_column(var = "N") %>% 
-  set_names(c("N","NMB")) %>% 
-  na.omit() %>% 
-  mutate(N = 10^as.numeric(paste0(N))) %>% 
-  tbl_df()
-
-icer_micro1d_N <- 
-  micro_sample_sizes %>% 
-  map(~(icer_microsim_1d %>% 
-  get_microsim_nmb(n = 10^(.x)))) %>% 
-  set_names(micro_sample_sizes) %>% 
-  bind_rows() %>% 
-  t() %>% 
-  data.frame() %>% 
-  rownames_to_column(var = "N") %>% 
-  set_names(c("N","NMB")) %>% 
-  na.omit() %>% 
-  mutate(N = 10^as.numeric(paste0(N))) %>% 
-  tbl_df()
-
-des_sample_sizes <- icer_des_N$N
-
-labels <- seq(2,10.5,0.5) #log10(des_sample_sizes)
-labels[(labels - floor(labels)) != 0] <- ""
-
-icer_micro_N_final <- 
-  icer_micro_N %>% 
-  mutate(cycle = "Yearly Cycle") %>% 
-  bind_rows(icer_micro1d_N %>% mutate(cycle = "Daily Cycle")) 
-
-icer_des_N %>% 
-  ggplot(aes(x=N,y=NMB)) +
-  geom_point()  + 
-  theme_bw() + 
-  geom_hline(aes(yintercept = icer_deq["NMB"]),lty=2)+
-  geom_hline(aes(yintercept = icer_mar["NMB"]),lty=2,colour="red") +
-  ylab("NMB\n(Genotype vs. Reference)") + 
-  xlab("Number of Simulated Patients\n(log10)") + 
-  scale_x_continuous(breaks = 10^seq(2,10.5,0.5), labels = labels, trans="log10") + 
-  annotate("text",y=icer_deq[["NMB"]],x=1e3,label = "DEQ: NMB",hjust=0) +
-  annotate("text",y=icer_mar[["NMB"]],x=10^2,label = "Markov: NMB",hjust=0,colour="red") +
-  ylim(c(-1000,1000)) + 
-  geom_point(data = icer_micro_N_final, aes(colour = cycle)) 
-
-```
-
-```{r}
-icer_des_N %>% 
-  mutate(error_dCOST.ref = dCOST.ref - icer_deq["dCOST.ref"],
-         error_dCOST.test = dCOST.test - icer_deq["dCOST.test"],
-         error_dQALY.ref = dQALY.ref - icer_deq["dQALY.ref"],
-         error_dQALY.test = dQALY.test - icer_deq["dQALY.test"]) %>% 
-  select(N, contains("error"))
-```
-
 ## PSA 
 
-```{r, cache= TRUE, eval = FALSE}
-get_params <-  function(x,params) {
-    map2(params,x,~(
-      .x(.y)
-    ))
-} 
+```{r psa halton draw, cache= TRUE, eval = FALSE}
+prep_psa_params <- function(params_psa = params_psa_realistic, params_depend=params_psa_realistic_depend,n_draw=1e3) {
+  
+  ###There are two types of parameters: 
+  ###first type draw value from a distribution (or sd=0 as constant params), which feed the halton draw function
+  ###second type are calculated parameter depending on other parameters
+  
+  ###keep only param functions that directly draw values from a distribution
+  which_are_fns <- params_psa %>% map_lgl( ~ is.function(.x))
+  n <- params$n
+  
+  psa_values <- list()
+  for (p in names(params_psa[which_are_fns])) {
+    cat(p)
+    psa_values[[p]] <- get_psa_values(params_psa[p], params = params)
+    cat("\n")
+  }
+  psa_values <-
+    psa_values %>%
+    bind_rows(.id = "rowname")
+  
+  ### psa params table
+  # tbl <-
+  #   params %>% unlist() %>% data.frame() %>%
+  #   rownames_to_column() %>%
+  #   filter(rowname %in% names(params_lut)) %>%
+  #   mutate(desc = as.character(params_lut[rowname])) %>%
+  #   select(3,1,2) %>%
+  #   left_join(psa_values,c("rowname")) %>%
+  #   mutate_at(vars(3),function(x) as.numeric(paste0(x))) %>%
+  #   mutate_at(vars(3),function(x) ifelse(x>1000,x,ifelse(x<=1,round(x,3), round(x,1)))) %>%
+  #   filter(!is.na(distribution))
+  #
+  #
+  # p_tbl <-
+  # tbl %>%
+  #   #filter(!grepl("NOT CURRENTLY",desc)) %>%
+  #   gt(rowname_col = "desc") %>%
+  #   tab_header(
+  #     title = "Model Parameters"
+  #   ) %>%
+  #   tab_options(
+  #     table.width = pct(100)
+  #   ) %>%
+  #   fmt_missing(columns = 2:10, missing_text = "") %>%
+  #   cols_label(. = "Value",
+  #              #desc = "Parameter",
+  #              rowname = "Short Name",
+  #              distribution = "PSA Distribution",
+  #              mean = "Mean",
+  #              sd = "Standard Deviation",
+  #              max = "Maximum",
+  #              min = "Minimum",
+  #              shape1 = "Beta Shape 1",
+  #              shape2 = "Beta Shape 2",
+  #              lambda = "Mean (Poisson)")
+  #
+  # p_tbl  %>% gtsave(filename = "figs/01_psa-parameters.png")
+  
+  ### halton draw
+  draws <-
+    randtoolbox::halton(n = n_draw, dim = length(params_psa[which_are_fns])) %>% as.matrix()
+  
+  if (!is.null(params_depend)) {
+    draws %>%
+      data.frame() %>%
+      magrittr::set_names(names(params_psa[which_are_fns]))  %>%
+      pmap(list) %>%
+      map( ~ (get_params(.x, params = params_psa[which_are_fns]))) %>%
+      map( ~ (get_params2(.x, params = params_psa_realistic_depend))) %>% #add calculated params
+      map( ~ (data.frame(.x))) %>% bind_rows() %>%
+      pmap(list)
+    
+  } else {
+    draws %>%
+      data.frame() %>%
+      magrittr::set_names(names(params_psa[which_are_fns]))  %>%
+      pmap(list) %>%
+      map( ~ (get_params(.x, params = params_psa[which_are_fns]))) %>%
+      map( ~ (data.frame(.x))) %>% bind_rows() %>%
+      pmap(list)
+  }
+  
+   
 
-params$n <- 1e6
+}
 
-draws <- halton(n = 100, dim = length(params_psa_realistic))
-
-set.seed(23)
-halton_draws <- 
-  draws %>% 
-  data.frame() %>% 
-  magrittr::set_names(names(params_psa))  %>% 
-  pmap(list) %>% 
-  map(~(get_params(.x,params=params_psa))) %>% 
-  map(~(data.frame(.x))) %>% bind_rows() %>% 
-  mutate(r_a = inst_rate(r_a_pct,r_a_dur)) %>% 
-  mutate(r_b = inst_rate(r_b_pct,r_b_dur)) %>% 
-  pmap(list)
-
-halton_draws %>% 
-  write_rds(here("output/psa/01_halton-draws-realistic.rds"))
-
-
-halton_draws_realistic <- 
-  draws %>% 
-  data.frame() %>% 
-  magrittr::set_names(names(params_psa_realistic))  %>% 
-  pmap(list) %>% 
-  map(~(get_params(.x,params=params_psa_realistic))) %>% 
-  map(~(data.frame(.x))) %>% bind_rows() %>% 
-  mutate(r_a = inst_rate(r_a_pct/100,r_a_dur)) %>% 
-  mutate(r_b = inst_rate(r_b_pct/100,r_b_dur)) %>% 
-  pmap(list)
-
-halton_draws_realistic %>% 
-  write_rds(here("output/psa/02_halton-draws-realistic.rds"))
-
-plan(multiprocess)
-
-psa_des <-
-  halton_draws %>%
-  future_map(~(des_icer(.x)), .progress = TRUE)
-psa_des %>% write_rds(here("output/psa/01_des-psa.rds"))
-
-psa_des_realistic <- 
-  halton_draws_realistic %>% 
-  future_map(~(des_icer(.x)), .progress = TRUE)
-psa_des_realistic %>% write_rds(here("output/psa/02_des-psa-realistic.rds"))
-
-# psa_deq <- 
+halton_draws <- prep_psa_params()
+# params_halton <- 
 #   halton_draws %>% 
-#   future_map(~(deq_icer(.x)), .progress = TRUE)
-# psa_deq %>% write_rds(here("output/psa/01_deq-psa.rds"))
-plan(multiprocess)
-psa_deq_realistic <- 
-  halton_draws_realistic %>% 
-  future_map(~(deq_icer(.x)), .progress = TRUE)
-psa_deq_realistic %>% write_rds(here("output/psa/02_deq-psa-realistic.rds"))
-
-
-# psa_mar <- 
-#   halton_draws %>% 
-#   future_map(~(markov_icer(.x)),.progress = TRUE)
-# psa_mar %>% write_rds(here("output/psa/01_mar-psa.rds"))
-plan(multiprocess)
-psa_mar_realistic <- 
-  halton_draws_realistic %>% 
-  future_map(~(markov_icer(.x)),.progress = TRUE)
-psa_mar_realistic %>% write_rds(here("output/psa/02_mar-psa-realistic.rds"))
-
+#   map(~(c(.x,params_psa[!which_are_fns]))) 
 # 
-# df_psa_des <- psa_des %>% 
-#   map(~(.x %>% t() %>% tbl_df())) %>% 
-#   bind_rows() %>% 
-#   mutate(iteration = row_number()) %>% 
-#   mutate(qaly_reference = dQALY.ref,
-#          qaly_test = dQALY.test,
-#          cost_reference = dCOST.ref,
-#          cost_test = dCOST.test) %>% 
-#   select(iteration,contains("qaly_"),contains("cost_")) %>% 
-#   mutate(model = "Discrete Event Simulation")
-# 
-# df_psa_deq <- psa_deq %>% 
-#   map(~(.x %>% t() %>% tbl_df())) %>% 
-#   bind_rows() %>% 
-#   mutate(iteration = row_number()) %>% 
-#   mutate(qaly_reference = dQALY.ref,
-#          qaly_test = dQALY.test,
-#          cost_reference = dCOST.ref,
-#          cost_test = dCOST.test) %>% 
-#   select(iteration,contains("qaly_"),contains("cost_")) %>% 
-#   mutate(model = "Differential Equations")
-# 
-# df_psa_mar <- psa_mar %>% 
-#   map(~(.x %>% t() %>% tbl_df())) %>% 
-#   bind_rows() %>% 
-#   mutate(iteration = row_number()) %>% 
-#   mutate(qaly_reference = dQALY.ref,
-#          qaly_test = dQALY.test,
-#          cost_reference = dCOST.ref,
-#          cost_test = dCOST.test) %>% 
-#   select(iteration,contains("qaly_"),contains("cost_")) %>% 
-#   mutate(model = "Markov Cohort")
-# 
-# df_psa <- 
-#   df_psa_deq %>% 
-#   bind_rows(df_psa_des) %>% 
-#   bind_rows(df_psa_mar) %>% 
-#   mutate(diff_qaly = qaly_test - qaly_reference,
-#          diff_cost = cost_test - cost_reference) %>% 
-#   left_join(
-#     halton_draws %>% bind_rows() %>% mutate(iteration = row_number())
-#   )
-# 
-# df_psa %>% write_rds(here("output/psa/01_psa.rds")) 
+# params_halton_transpose <- 
+#   params_halton %>% 
+#   transpose()
 
+# halton_draws %>% 
+#   write_rds(here("output/psa/01_halton-draws.rds"))
+```
 
+```{r run psa,cache= TRUE, eval = FALSE}      
+run_psa = FALSE
 
-df_psa_des_realistic <- psa_des_realistic %>% 
-  map(~(.x %>% t() %>% tbl_df())) %>% 
-  bind_rows() %>% 
-  mutate(iteration = row_number()) %>% 
+if (run_psa) {
+  library(parallel)
+  library(doParallel)
+  library(tcltk)
+  library(iterators)
+  nc <- detectCores() 
+  n <- length(halton_draws)
+  
+  #----------
+  ## DES-PSA
+  #----------
+  cl <- parallel::makeCluster(nc)
+  doParallel::registerDoParallel(cl)
+  clusterExport(cl, c("n"))
+  psa_des <- 
+    foreach(i = icount(length(halton_draws)),.packages = "tcltk") %dopar% {
+      source(here::here("R/manifest.R"))
+      if(!exists("pb")) pb <- tkProgressBar("Parallel task", min=1, max=n)
+      setTkProgressBar(pb, i)
+      des_icer(halton_draws[[i]])
+    }
+  stopCluster(cl)
+  psa_des %>% write_rds(here("output/psa/01_des-psa.rds"))
+  
+  #----------
+  ## DEQ-PSA
+  #----------
+  cl <- parallel::makeCluster(nc)
+  doParallel::registerDoParallel(cl)
+  clusterExport(cl, c("n"))
+  psa_deq <- 
+    foreach(i = icount(length(halton_draws)),.packages = "tcltk") %dopar% {
+      source(here::here("R/manifest.R"))
+      if(!exists("pb")) pb <- tkProgressBar("Parallel task", min=1, max=n)
+      setTkProgressBar(pb, i)
+      deq_icer(halton_draws[[i]])
+    }
+  stopCluster(cl)
+  psa_deq %>% write_rds(here("output/psa/01_deq-psa.rds"))
+  
+  # psa_deq <-
+  #   halton_draws %>%
+  #   future_map(~(deq_icer(.x)), .progress = TRUE)
+  # psa_deq %>% write_rds(here("output/psa/01_deq-psa.rds"))
+  # 
+  
+  #----------
+  ## MAR-PSA
+  #----------
+  cl <- parallel::makeCluster(nc)
+  doParallel::registerDoParallel(cl)
+  clusterExport(cl, c("n"))
+  psa_mar <- 
+    foreach(i = icount(length(halton_draws)),.packages = "tcltk") %dopar% {
+      source(here::here("R/manifest.R"))
+      if(!exists("pb")) pb <- tkProgressBar("Parallel task", min=1, max=n)
+      setTkProgressBar(pb, i)
+      markov_comb(halton_draws[[i]])
+    }
+  stopCluster(cl)
+  psa_mar %>% write_rds(here("output/psa/01_mar-psa.rds"))
+  
+  #----------
+  ## COR-MAR-PSA
+  #----------
+  cl <- parallel::makeCluster(nc)
+  doParallel::registerDoParallel(cl)
+  clusterExport(cl, c("n"))
+  psa_mar_corr <- 
+    foreach(i = icount(length(halton_draws)),.packages = "tcltk") %dopar% {
+      source(here::here("R/manifest.R"))
+      if(!exists("pb")) pb <- tkProgressBar("Parallel task", min=1, max=n)
+      setTkProgressBar(pb, i)
+      markov_comb_corr(halton_draws[[i]])
+    }
+  stopCluster(cl)
+  psa_mar_corr %>% write_rds(here("output/psa/01_mar-corr-psa.rds"))
+  
+
+  # psa_microsim <- 
+  #   halton_draws %>%
+  #   future_map(~(microsim_icer(.x, N = 1e6, seed=123)),.progress = TRUE)
+  # psa_microsim %>% write_rds(here("output/psa/01_microsim-psa.rds"))
+}
+
+psa_des <-  read_rds(here("output/psa/01_des-psa.rds"))
+psa_deq <- read_rds(here("output/psa/01_deq-psa.rds"))
+psa_mar <- read_rds(here("output/psa/01_mar-psa.rds"))
+psa_mar_corr <- read_rds(here("output/psa/01_mar-corr-psa.rds"))
+# 
+df_psa_des <- psa_des %>%
+  map(~(.x %>% t() %>% tbl_df())) %>%
+  bind_rows() %>%
+  mutate(iteration = row_number()) %>%
   mutate(qaly_reference = dQALY.ref,
          qaly_test = dQALY.test,
          cost_reference = dCOST.ref,
-         cost_test = dCOST.test) %>% 
-  select(iteration,contains("qaly_"),contains("cost_")) %>% 
+         cost_test = dCOST.test) %>%
+  select(iteration,contains("qaly_"),contains("cost_")) %>%
   mutate(model = "Discrete Event Simulation")
 
-df_psa_deq_realistic <- psa_deq_realistic %>% 
-  map(~(.x %>% t() %>% tbl_df())) %>% 
-  bind_rows() %>% 
-  mutate(iteration = row_number()) %>% 
+df_psa_deq <- psa_deq %>%
+  map(~(.x %>% t() %>% tbl_df())) %>%
+  bind_rows() %>%
+  mutate(iteration = row_number()) %>%
   mutate(qaly_reference = dQALY.ref,
          qaly_test = dQALY.test,
          cost_reference = dCOST.ref,
-         cost_test = dCOST.test) %>% 
-  select(iteration,contains("qaly_"),contains("cost_")) %>% 
+         cost_test = dCOST.test) %>%
+  select(iteration,contains("qaly_"),contains("cost_")) %>%
   mutate(model = "Differential Equations")
 
-df_psa_mar_realistic <- psa_mar_realistic %>% 
-  map(~(.x %>% t() %>% tbl_df())) %>% 
-  bind_rows() %>% 
-  mutate(iteration = row_number()) %>% 
+df_psa_mar <- psa_mar %>%
+  map(~(.x %>% t() %>% tbl_df())) %>%
+  bind_rows() %>%
+  mutate(iteration = row_number()) %>%
   mutate(qaly_reference = dQALY.ref,
          qaly_test = dQALY.test,
          cost_reference = dCOST.ref,
-         cost_test = dCOST.test) %>% 
-  select(iteration,contains("qaly_"),contains("cost_")) %>% 
+         cost_test = dCOST.test) %>%
+  select(iteration,contains("qaly_"),contains("cost_")) %>%
   mutate(model = "Markov Cohort")
 
-df_psa_realistic <- 
-  df_psa_deq_realistic %>% 
-  bind_rows(df_psa_des_realistic) %>% 
-  bind_rows(df_psa_mar_realistic) %>% 
+
+df_psa_mar_corr <- psa_mar_corr %>%
+  map(~(.x %>% t() %>% tbl_df())) %>%
+  bind_rows() %>%
+  mutate(iteration = row_number()) %>%
+  mutate(qaly_reference = dQALY.ref,
+         qaly_test = dQALY.test,
+         cost_reference = dCOST.ref,
+         cost_test = dCOST.test) %>%
+  select(iteration,contains("qaly_"),contains("cost_")) %>%
+  mutate(model = "Corrected Markov Cohort")
+
+df_psa <-
+  df_psa_deq %>%
+  bind_rows(df_psa_des) %>%
+  bind_rows(df_psa_mar) %>%
+  bind_rows(df_psa_mar_corr) %>%
   mutate(diff_qaly = qaly_test - qaly_reference,
-         diff_cost = cost_test - cost_reference) %>% 
+         diff_cost = cost_test - cost_reference) %>%
   left_join(
     halton_draws %>% bind_rows() %>% mutate(iteration = row_number())
   )
-
-df_psa_realistic %>% write_rds(here("output/psa/02_psa-realistic.rds")) 
+# 
+df_psa %>% write_rds(here("output/psa/01_psa.rds")) 
 
 ```
 
 
-```{r, eval = FALSE}
-df_psa <- read_rds(here("output/psa/02_psa-realistic.rds"))
+```{r load psa, eval = FALSE}
+df_psa <- read_rds(here("output/psa/01_psa.rds"))
 
 df_psa_long <- 
   df_psa %>% 
@@ -453,14 +432,14 @@ df_psa_long <-
   spread(measure,value) 
 ```
 
-```{r, eval = FALSE}
+```{r CE plane, eval = FALSE}
 p_ce_plane <- 
   df_psa %>% 
   ggplot(aes(x = diff_qaly, y = diff_cost, colour = model)) + 
   geom_point() + 
   geom_abline(slope = 100000, intercept = 0, lty = 2) + 
-  #scale_x_continuous(limits = c(-.5,.5)) + 
-  #scale_y_continuous(limits = c(-1000,7000)) +
+  scale_x_continuous(limits = c(-.5,.5)) + 
+  scale_y_continuous(limits = c(-1000,7000)) +
   geom_hline(aes(yintercept = 0)) + 
   geom_vline(aes(xintercept = 0)) +
   theme_minimal()
@@ -468,454 +447,271 @@ p_ce_plane <-
 direct.label(p_ce_plane,"smart.grid")
 ```
 
-```{r, eval = FALSE}
-lambda_range <- unique(c(seq(0,1000,100),seq(1000,5000,500),seq(5000,30000,1000),seq(30000,300000,5000)))
+## Cost-Effectiveness Acceptability Frontier 
 
-#lambda_range <- c(25000,50000,100000,150000)
+```{r CEAF}
+plot_ceac <- function(psa_dt=df_psa_long,lambda_range=NULL,CEAF=TRUE) {
+  if(is.null(lambda_range)) {
+    lambda_range <- unique(c(seq(0,1000,100),seq(1000,5000,500),seq(5000,30000,1000),seq(30000,300000,5000)))
+  }
 
-plan(multiprocess)
-df_ceac <- 
-  lambda_range %>% 
-    future_map(~(
-      df_psa_long %>% 
+  #calculate ceac
+  nc <- detectCores()
+  cl <- parallel::makeCluster(nc)
+  doParallel::registerDoParallel(cl)
+  clusterExport(cl, c("n"))
+  n <- length(lambda_range)
+  df_ceac_tmp <- 
+    foreach(i = icount(length(lambda_range)),.packages = "tcltk") %dopar% {
+      source(here::here("R/manifest.R"))
+      library(dplyr)
+      if(!exists("pb")) pb <- tkProgressBar("Parallel task", min=1, max=n)
+      setTkProgressBar(pb, i)
+      .x = lambda_range[i]
+      psa_dt %>% 
         group_by(model) %>% 
-        mutate(nmb = as.numeric(paste0(.x)) * qaly - cost))) %>% 
-     magrittr::set_names(lambda_range) %>% 
-      bind_rows(.id = "lambda") %>% 
-      mutate(lambda = as.numeric(paste0(lambda))) %>% 
-      group_by(model, iteration,lambda) %>% 
-      mutate(max = max(nmb)) %>% 
-      mutate(max = as.integer(nmb==max))
-
-
-p_ceac <- 
-  df_ceac %>% 
-  group_by(lambda,strategy,model) %>% 
-  #filter(model != "Markov Cohort") %>% 
-  summarise_at(vars(max),funs(mean)) %>% 
-  ggplot(aes(x = lambda, y= max)) + 
-  scale_x_continuous(labels = scales::comma) +
-  geom_line(aes(colour = strategy, lty = model)) + 
-  theme_minimal() + 
-  xlab("Willingness to Pay Threshold") + 
-  ylab("Pr(Cost Effective)") 
-
+        mutate(nmb = as.numeric(paste0(.x)) * qaly - cost)
+    }
+  stopCluster(cl)
   
-```
-
-```{r, eval = FALSE}
-
-plan(multiprocess)
-df_ceaf_cutpoints <- 
-  lambda_range %>% 
-    future_map(~(df_ceac %>% 
-    group_by(model,strategy,lambda) %>% 
-    mutate_at(vars(cost,qaly),funs(mean = mean)) %>% 
-    mutate(nmb = .x * qaly_mean - cost_mean) %>% 
-    ungroup() %>% 
-    select(-lambda))) %>% 
-    magrittr::set_names(lambda_range)  %>% 
-    bind_rows(.id="lambda") %>% 
-    mutate(lambda = as.numeric(paste0(lambda))) %>%
-    group_by(model, lambda) %>% 
-    mutate(max = as.integer(nmb == max(nmb))) %>% 
-    filter(max ==1) %>% 
-    select(model, lambda,strategy) %>% 
-    unique()  %>% 
-    mutate(optimal = 1)
-
-df_ceaf <- 
-  df_ceac%>% 
-  group_by(model,lambda,strategy) %>% 
-  summarise_at(vars(max),funs(mean)) %>% 
-  inner_join(df_ceaf_cutpoints,c("model","lambda","strategy"))  
-
-decision_error_range <- df_ceaf_cutpoints_deq %>% 
-  anti_join(df_ceaf_cutpoints_mar) %>% 
-  pull(lambda) %>% range()
-
-```
-
-
-
-
-```{r, eval = FALSE}
-plot_occupancy <- function(df,x,y,group,range = c(0,45)) {
-  group <- enquo(group)
-  x <- enquo(x)
-  y <- enquo(y)
-  # Plot: Total Percent of Population 
-  p <- df %>% 
-  ggplot(aes(x = !!x, y = !!y)) + geom_line(aes(colour = !!group)) + 
-   theme_bw() +
-    xlab("Time") + 
-    ylab("Percent of Population") +
-    xlim(range)
-  direct.label(p,"last.bumpup")
-}
-
-# Indication Occupancy
-ind.ordered <- sort(des$indication)
-sub <- seq(1, length(ind.ordered), by=1000)
-occ_indication <- data.frame(time = deq[,'time'], a_c = deq[,'a_c'] * 100, model = "dede") %>% 
-  bind_rows(data.frame(time = ind.ordered[sub]/365, a_c = 100*sub/params$n, model = "des")) %>% 
-  bind_rows(data.frame(time = 0:params$horizon, 
-                       a_c = c(0, cumsum(mar$combined_model$eval_strategy_list$reference$values$A_acc/10))[(0:params$horizon)*params$interval+1],
-            model = "markov")) %>% 
-  tbl_df()
-p_occ_indication <- plot_occupancy(occ_indication, x = time, y = a_c, group = model)
-
-
-# Difference in Models
-dede_fn <- approxfun(occ_indication %>% filter(model=="dede") %>% pull(time), occ_indication %>% filter(model == "dede") %>% pull(a_c))
-des_fn <- approxfun(occ_indication %>% filter(model=="des") %>% pull(time), occ_indication %>% filter(model == "des") %>% pull(a_c))
-mar_fn <- approxfun(occ_indication %>% filter(model=="markov") %>% pull(time), occ_indication %>% filter(model == "markov") %>% pull(a_c))
-
-times <- seq(0,40,0.1)
-p_df_diff <- data.frame(time = times, dede = dede_fn(times), des = des_fn(times), markov = mar_fn(times))
-p_df_diff$des <- p_df_diff$des - p_df_diff$dede
-p_df_diff$markov <- p_df_diff$markov - p_df_diff$dede
-p_df_diff <- p_df_diff %>% 
-  select(-dede) %>% 
-  gather(key,value,-time)
-
-p <- 
-  p_df_diff %>% 
-  ggplot(aes(x = time, y = value)) + geom_line(aes(colour = key)) + 
-  theme_bw() + 
-  xlab("Time") + 
-  ylab("Difference\n(% of Population)") + 
-  geom_hline(aes(yintercept = 0)) + 
-  xlim(c(0,50))
-p_diff_indication <- direct.label(p,"last.bumpup")
-
-p_occ_indication + p_diff_indication + plot_layout(ncol = 1)
-
-```
-
-```{r, eval = FALSE}
-# PSA
-
-get_params <-  function(x) {
-  params_psa %>% 
-    map(~(
-      .x(c(x))
-    ))
-}
-
-halton_draws <- 
-  halton(n = 200, dim = length(params_psa)) %>% 
-  data.frame() %>% 
-  magrittr::set_names(names(params_psa)) %>% 
-  pmap((~get_params(.x))) 
-
-plan(multiprocess)
-
-psa_deq <- 
-  halton_draws %>% 
-  future_map(~(deq_icer(.x)), .progress = TRUE)
-
-psa_mar <- 
-  halton_draws %>% 
-  future_map(~(markov_icer(.x)),.progress = TRUE)
-
-df_deq <- psa_deq %>% 
-  map(~(.x %>% t() %>% tbl_df())) %>% 
-  bind_rows() %>% 
-  mutate(iteration = row_number()) %>% 
-  mutate(qaly_reference = dQALY.ref,
-         qaly_test = dQALY.test,
-         cost_reference = dCOST.ref,
-         cost_test = dCOST.test) %>% 
-  select(iteration,contains("qaly_"),contains("cost_")) %>% 
-  mutate(model = "Differential Equations")
-
-df_mar <- psa_mar %>% 
-  map(~(.x %>% t() %>% tbl_df())) %>% 
-  bind_rows() %>% 
-  mutate(iteration = row_number()) %>% 
-  mutate(qaly_reference = dQALY.ref,
-         qaly_test = dQALY.test,
-         cost_reference = dCOST.ref,
-         cost_test = dCOST.test) %>% 
-  select(iteration,contains("qaly_"),contains("cost_")) %>% 
-  mutate(model = "Markov Cohort")
-
-```
-
-
-```{r, eval = FALSE}
-
-
-# df_mar <- halton_markov %>% 
-#   tbl_df() %>% 
-#   mutate(iteration = row_number()) %>% 
-#   mutate(qaly_reference = dQALY.ref,
-#          qaly_test = dQALY.test,
-#          cost_reference = dCOST.ref,
-#          cost_test = dCOST.test) %>% 
-#   select(iteration,contains("qaly_"),contains("cost_")) %>% 
-#   mutate(model = "Markov Cohort")
-
-df_psa_long <- 
-  df_deq %>% 
-  #bind_rows(df_des) %>% 
-  bind_rows(df_mar) %>% 
-  gather(key,value,-iteration,-model) %>% 
-  separate(key,into = c("outcome","strategy")) %>% 
-  spread(outcome,value) 
-
-
-p_ce_plane <- 
-  df_psa_long %>% ggplot(aes(x = qaly, y = cost)) + 
-  geom_point(aes(colour=strategy)) + 
-  theme_minimal() + 
-  #scale_colour_grey() + 
-  xlab("QALYs") + 
-  ylab("Costs") + 
-  facet_wrap(~model) +
-  NULL
-
-direct.label(p_ce_plane,"smart.grid")
-
-lambda_range <- unique(c(seq(0,1000,100),seq(1000,5000,500),seq(5000,30000,1000),seq(30000,300000,5000)))
-
-#lambda_range <- seq(80000,120000,1000)
-
-df_ceac_deq <- 
-  lambda_range %>% 
-  map(~(
-  df_psa_long %>% filter(model == "Differential Equations") %>% 
-  mutate(nmb = as.numeric(paste0(.x)) * qaly - cost))) %>% 
-  magrittr::set_names(lambda_range) %>% 
-  bind_rows(.id = "lambda") %>% 
-  mutate(lambda = as.numeric(paste0(lambda))) %>% 
-  group_by(iteration,lambda) %>% 
-  mutate(max = max(nmb)) %>% 
-  mutate(max = as.integer(nmb==max)) %>% 
-  mutate(model = "Differential Equations")
-
-df_ceaf_cutpoints_deq <- 
-  lambda_range %>% 
-    map(~(df_ceac_deq %>% 
-    group_by(strategy,lambda) %>% 
-    mutate_at(vars(cost,qaly),funs(mean = mean)) %>% 
-    mutate(nmb = .x * qaly_mean - cost_mean) %>% 
-    ungroup() %>% 
-    select(-lambda))) %>% 
-    magrittr::set_names(lambda_range)  %>% 
-    bind_rows(.id="lambda") %>% 
-    mutate(lambda = as.numeric(paste0(lambda))) %>%
-    group_by(lambda) %>% 
-    mutate(max = as.integer(nmb == max(nmb))) %>% 
-    filter(max ==1) %>% 
-    select(lambda,strategy) %>% 
-    unique()  %>% 
-    mutate(optimal = 1)
-
-df_ceaf_deq <- 
-  df_ceac_deq %>% 
-  group_by(lambda,strategy) %>% 
-  summarise_at(vars(max),funs(mean)) %>% 
-  inner_join(df_ceaf_cutpoints_deq,c("lambda","strategy"))  %>% 
-  mutate(model = "Differential Equations")
-
-df_ceac_mar  <- 
-  lambda_range %>% 
-  map(~(
-  df_psa_long %>% filter(model == "Markov Cohort") %>% 
-  mutate(nmb = as.numeric(paste0(.x)) * qaly - cost))) %>% 
-  magrittr::set_names(lambda_range) %>% 
-  bind_rows(.id = "lambda") %>% 
-  mutate(lambda = as.numeric(paste0(lambda))) %>% 
-  group_by(iteration,lambda) %>% 
-  mutate(max = max(nmb)) %>% 
-  mutate(max = as.integer(nmb==max)) %>% 
-  mutate(model = "Markov Cohort")
-
-df_ceaf_cutpoints_mar <- 
-  lambda_range %>% 
-    map(~(df_ceac_mar %>% 
-    group_by(strategy,lambda) %>% 
-    mutate_at(vars(cost,qaly),funs(mean = mean)) %>% 
-    mutate(nmb = .x * qaly_mean - cost_mean) %>% 
-    ungroup() %>% 
-    select(-lambda))) %>% 
-    magrittr::set_names(lambda_range)  %>% 
-    bind_rows(.id="lambda") %>% 
-    mutate(lambda = as.numeric(paste0(lambda))) %>%
-    group_by(lambda) %>% 
-    mutate(max = as.integer(nmb == max(nmb))) %>% 
-    filter(max ==1) %>% 
-    select(lambda,strategy) %>% 
-    unique()  %>% 
-    mutate(optimal = 1)
-
-df_ceaf_mar <- 
-  df_ceac_mar %>% 
-  group_by(lambda,strategy) %>% 
-  summarise_at(vars(max),funs(mean)) %>% 
-  inner_join(df_ceaf_cutpoints_mar,c("lambda","strategy")) %>% 
-  mutate(model = "Markov Cohort")
-
-
-df_ceac <- 
-  df_ceac_deq %>% 
-  bind_rows(df_ceaf_mar)
-
-df_ceaf <- 
-  df_ceaf_deq %>% 
-  #bind_rows(df_ceaf_des) %>% 
-  bind_rows(df_ceaf_mar)
-
-decision_error_range <- df_ceaf_cutpoints_deq %>%
-  anti_join(df_ceaf_cutpoints_mar) %>%
-  pull(lambda) %>% range()
-
-p_ceac <- 
-  df_ceac %>% 
-  filter(model != "Markov Cohort") %>% 
-  group_by(lambda,strategy,model) %>% 
-  summarise_at(vars(max),funs(mean)) %>% 
-  ggplot(aes(x = lambda, y= max)) + geom_line(aes(colour = strategy, lty = model)) + 
-  theme_minimal() + 
-  geom_line(data = df_ceaf, lwd=1.5, aes(colour=strategy,lty=model)) + 
-  xlab("Willingness to Pay Threshold") + 
-  ylab("Pr(Cost Effective)") #+ 
-  #geom_rect(aes(xmin = decision_error_range[1], xmax = decision_error_range[2], ymin = 0, ymax = Inf), fill =  "lightgrey",alpha = 0.01)
-
-direct.label(p_ceac,"angled.boxes")  
+  df_ceac <- 
+    df_ceac_tmp %>% 
+    magrittr::set_names(lambda_range) %>% 
+    bind_rows(.id = "lambda") %>% 
+    mutate(lambda = as.numeric(paste0(lambda))) %>% 
+    group_by(model, iteration,lambda) %>% 
+    mutate(max = max(nmb)) %>% 
+    mutate(max = as.integer(nmb==max))
   
-
-```
-
-```{r, eval = FALSE}
-halton_run <- function(n, FUN=deq_icer, start=1)
-{
-  if(start > 1) halton(start-1, 14, init=TRUE)
-
-  pb <- progress_bar$new(format= "(:spin) [:bar] :percent\r", total = n)
-
-  result <- apply(halton(n, 14, init=(start == 1)), 1, function(x)
-  {
-    pb$tick()
-
-    params$p_bd = x[1] # Probability of death from B
-    params$p_g  = x[2] # Probability of genetic variant
-    params$r_a  = inst_rate(x[3], 10) # 10% Rate of A over a 10 year period
-    params$r_b  = inst_rate(x[4], 1) # 2% Rate of B
-    params$rr_b = x[5] # Reduced relative risk of B
-
-    # Costs
-    params$c_a   <- exp(4.60517 * x[6] + 6.907755) # Cost of Event A 1000 -> 10000 log scale
-    params$c_bs  <- exp(4.60517 * x[7] + 6.907755) # Cost of Event B survival
-    params$c_bd  <- exp(4.60517 * x[8] + 6.907755) # Cost of Event B death
-    params$c_tx  <- 9.99*x[9]+0.01   # Cost of daily normal treatment
-    params$c_alt <- 99.99*x[10]+0.01     # Cost of alternate treatment
-    params$c_t   <- 1000*x[11]   # Cost of test
-
-    params$d_a   <- 0.5*x[12]     # Disutility of A
-    params$d_at  <- 10*x[13]      # Duration of A in years.
-    params$d_b   <- 0.5*x[14]     # Disutility of B
-
-    #params$horizon <- x[15]*79 + 1 # 1:80 years for simulation
-
-    #cat("running ")
-    #print(params)
-    #cat("\n")
-    et <- microbenchmark(results <- FUN(params), times=1L)
-
-    x <- with(params, c(p_bd, p_g, r_a, r_b, rr_b, c_a, c_bs, c_bd, c_tx, c_alt, c_t, d_a, d_at, d_b, horizon, et$time/1e6, results))
-
-    names(x) <- c("p_bd", "p_g", "r_a", "r_b", "rr_b", "c_a", "c_bs", "c_bd", "c_tx", "c_alt", "c_t", "d_a", "d_at", "d_b",
-                  "horizon", "system.time", names(results))
-    x
-  })
- pb$terminate()
-
-  result
+  # plot
+  p_ceac <- 
+    df_ceac %>% 
+    group_by(lambda,strategy,model) %>% 
+    #filter(model != "Markov Cohort") %>% 
+    summarise_at(vars(max),funs(mean)) %>% 
+    ggplot(aes(x = lambda, y= max)) + 
+    scale_x_continuous(labels = scales::comma) +
+    geom_line(aes(colour = strategy, lty = model)) + 
+    theme_minimal() + 
+    xlab("Willingness to Pay Threshold") + 
+    ylab("Pr(Cost Effective)")
+  
+  
+  #optional CEAF add on
+  if(CEAF) {
+    
+    cl <- parallel::makeCluster(nc)
+    doParallel::registerDoParallel(cl)
+    clusterExport(cl, c("n"))
+    df_ceaf_tmp <- 
+      foreach(i = icount(length(lambda_range)),.packages = "tcltk") %dopar% {
+        source(here::here("R/manifest.R"))
+        library(dplyr)
+        if(!exists("pb")) pb <- tkProgressBar("Parallel task", min=1, max=n)
+        setTkProgressBar(pb, i)
+        .x = lambda_range[i]
+        df_ceac %>% 
+          group_by(model,strategy,lambda) %>% 
+          mutate_at(vars(cost,qaly),funs(mean = mean)) %>% 
+          mutate(nmb = .x * qaly_mean - cost_mean) %>% 
+          ungroup() %>% 
+          select(-lambda)
+      }
+    stopCluster(cl)
+    
+    df_ceaf_cutpoints <- 
+      df_ceaf_tmp %>% 
+      magrittr::set_names(lambda_range)  %>% 
+      bind_rows(.id="lambda") %>% 
+      mutate(lambda = as.numeric(paste0(lambda))) %>%
+      group_by(model, lambda) %>% 
+      mutate(max = as.integer(nmb == max(nmb))) %>% 
+      filter(max ==1) %>% 
+      select(model, lambda,strategy) %>% 
+      unique()  %>% 
+      mutate(optimal = 1)
+    
+    df_ceaf <- 
+      df_ceac %>% 
+      group_by(model,lambda,strategy) %>% 
+      summarise_at(vars(max),funs(mean)) %>% 
+      inner_join(df_ceaf_cutpoints,c("model","lambda","strategy"))  
+    
+    df_ceaf_cutpoints_deq <- 
+      df_ceaf_cutpoints %>% 
+      filter(model == "Differential Equations") %>% 
+      filter(optimal==1) %>% 
+      ungroup() %>% 
+      select(-model)
+    
+    df_ceaf_cutpoints_mar <- 
+      df_ceaf_cutpoints %>% 
+      filter(model == "Markov Cohort") %>% 
+      filter(optimal==1) %>% 
+      ungroup() %>% 
+      select(-model)
+    
+    decision_error_range <- df_ceaf_cutpoints_deq %>% 
+      anti_join(df_ceaf_cutpoints_mar) %>% 
+      pull(lambda) %>% range()
+    
+    df_error <- 
+      data.frame(x = c(decision_error_range[1],decision_error_range[1],decision_error_range[2],decision_error_range[2]),
+                 y = c(0,1,1,0))
+    p_ceac <- p_ceac +
+      geom_line(data = df_ceaf %>% filter(optimal==1), aes(colour = strategy,lty=model),lwd=1) +
+      geom_polygon(data = df_error, aes(x = x, y = y),alpha = 0.15)
+  }
+  return(p_ceac)
 }
 
-halton_deq <- t(halton_run(100, deq_icer))
-write.csv(halton_deq,file="./halton_deq.csv")
-halton_markov <- t(halton_run(100, markov_icer))
-write.csv(halton_markov,file = "./halton_markov.csv")
-halton_des <- t(halton_run(3,des_icer))
+#plot_ceac(df_psa_long,lambda_range,TRUE)
+plot_ceac(psa_dt = df_psa_long,CEAF = F)
 ```
 
+## Examine Stochasticity
 
-```{r, eval = FALSE}
-plot_occupancy <- function(df,x,y,group,range = c(0,45)) {
-  group <- enquo(group)
-  x <- enquo(x)
-  y <- enquo(y)
-  # Plot: Total Percent of Population 
-  p <- df %>% 
-  ggplot(aes(x = !!x, y = !!y)) + geom_line(aes(colour = !!group)) + 
-   theme_bw() +
-    xlab("Time") + 
-    ylab("Percent of Population") +
-    xlim(range)
-  direct.label(p,"last.bumpup")
-}
-
-# Indication Occupancy
-ind.ordered <- sort(des$indication)
-sub <- seq(1, length(ind.ordered), by=1000)
-occ_indication <- data.frame(time = deq[,'time'], a_c = deq[,'a_c'] * 100, model = "dede") %>% 
-  bind_rows(data.frame(time = ind.ordered[sub]/365, a_c = 100*sub/params$n, model = "des")) %>% 
-  bind_rows(data.frame(time = 0:params$horizon, 
-                       a_c = c(0, cumsum(mar$combined_model$eval_strategy_list$reference$values$A_acc/10))[(0:params$horizon)*params$interval+1],
-            model = "markov")) %>% 
-  tbl_df()
-p_occ_indication <- plot_occupancy(occ_indication, x = time, y = a_c, group = model) +  xlim(c(0,50)) + theme_tufte_revised()
-
-# Difference in Models
-dede_fn <- approxfun(occ_indication %>% filter(model=="dede") %>% pull(time), occ_indication %>% filter(model == "dede") %>% pull(a_c))
-des_fn <- approxfun(occ_indication %>% filter(model=="des") %>% pull(time), occ_indication %>% filter(model == "des") %>% pull(a_c))
-mar_fn <- approxfun(occ_indication %>% filter(model=="markov") %>% pull(time), occ_indication %>% filter(model == "markov") %>% pull(a_c))
-
-times <- seq(0,40,0.1)
-p_df_diff <- data.frame(time = times, dede = dede_fn(times), des = des_fn(times), markov = mar_fn(times))
-p_df_diff$des <- p_df_diff$des - p_df_diff$dede
-p_df_diff$markov <- p_df_diff$markov - p_df_diff$dede
-p_df_diff <- p_df_diff %>% 
-  select(-dede) %>% 
-  gather(key,value,-time)
-
-p <- 
-  p_df_diff %>% 
-  ggplot(aes(x = time, y = value)) + geom_line(aes(colour = key)) + 
-  theme_bw() + 
-  xlab("Time") + 
-  ylab("Difference\n(% of Population)") + 
-  geom_hline(aes(yintercept = 0)) + 
-  xlim(c(0,50)) + 
-  theme_tufte_revised()
-p_diff_indication <- direct.label(p,"last.bumpup")
-
-p_occ_indication + p_diff_indication + plot_layout(ncol = 1)
-
-```
-
-```{r}
-# 10% over a 1 year period
+```{r comparison graph, eval = FALSE}
+# sample_sizes <- 10^c(2, 2.25, 2.5, 2.75 , 3, 3.25, 3.5, 3.75, 4, 4.25, 4.5, 4.75, 5 , 5.25, 5.5, 5.75, 6, 6.25, 6.5, 6.75, 7,7.25,7.5,7.75,8)
 # 
-# ================================================================================================
-#   Outcome                      Model Type          No Testing (ref.)  Genetic Testing  Incremental
-# ------------------------------------------------------------------------------------------------
-#   Mean QALYs             Differential Equations         21.195            21.232          0.037   
-# Discrete Event Simulation       21.197            21.234          0.037   
-# Markov Cohort             21.534            21.571          0.037   
-# Mean Costs             Differential Equations          17854             21508          3654    
-# Discrete Event Simulation        17960             21612          3652    
-# Markov Cohort              17856             21558          3702    
-# ICER                   Differential Equations                                           97525   
-# Markov Cohort                                              100245   
-# Discrete Event Simulation                                         98731   
-# Net Monetary Benefit   Differential Equations                                          92.712   
-# Markov Cohort                                              -9.065   
-# Discrete Event Simulation                                        46.922   
-# ================================================================================================
+# nc <- detectCores()
+# cl <- parallel::makeCluster(nc)
+# doParallel::registerDoParallel(cl)
+# clusterExport(cl, c("n"))
+# n <- length(sample_sizes)
+# icer_des_N <-
+#     foreach(i = icount(length(sample_sizes)), .combine=bind_rows,.packages = "tcltk") %dopar% {
+#       library("dplyr")
+#       source(here::here("R/manifest.R"))
+#       if(!exists("pb")) pb <- tkProgressBar("Parallel task", min=1, max=n)
+#       setTkProgressBar(pb, i)  
+#       des_icer(params,seed=123,N=sample_sizes[i]) %>% t() %>% data.frame() %>% mutate(N = sample_sizes[i])
+#     }
+# stopCluster(cl)
+# icer_des_N %>% write_rds(here("output/icer_des_N_new.rds"))
+
+icer_des_N <- read_rds(here("output/icer_des_N_new.rds"))
+
+# Get Microsimulation Model Runs (batchs of 1k)
+load(here("output/microsim-results/microsim_1b_yearly.rda"))
+icer_microsim_1y <- runs
+
+load(here("output/microsim-results/microsim_1b_daily.rda"))
+icer_microsim_1d <- runs
+
+get_microsim_nmb <- function(df, n, seed = 123, wtp = params$wtp) {
+  set.seed(seed)
+  sampled_rows <- sample(1:nrow(df),n/1e3, replace = TRUE)
+  tmp <- apply(df[sampled_rows,] ,2, mean)
+  nmb <- unname((tmp['dCOST.ref'] - tmp['dCOST.test']) + wtp*(tmp['dQALY.test'] - tmp['dQALY.ref']))
+  nmb.test <- wtp*(tmp['dQALY.test']) -  (tmp['dCOST.test'])
+  nmb.ref <- wtp*(tmp['dQALY.ref']) -  (tmp['dCOST.ref'])
+  icer <- unname((tmp['dCOST.test'] - tmp['dCOST.ref']) / (tmp['dQALY.test'] - tmp['dQALY.ref']))
+  return(c(nmb))
+}
+
+micro_sample_sizes = seq(6,10.5,0.25)
+
+nc <- detectCores() 
+cl <- parallel::makeCluster(nc)
+doParallel::registerDoParallel(cl)
+clusterExport(cl, c("n"))
+n <- length(micro_sample_sizes)
+icer_micro_N <- 
+  foreach(i = icount(length(micro_sample_sizes)),.packages = "tcltk") %dopar% {
+    library("dplyr")
+    source(here::here("R/manifest.R"))
+    if(!exists("pb")) pb <- tkProgressBar("Parallel task", min=1, max=n)
+    setTkProgressBar(pb, i)  
+    icer_microsim_1y %>% get_microsim_nmb(n = 10^micro_sample_sizes[i])
+  } %>% 
+  set_names(micro_sample_sizes) %>% 
+  bind_rows() %>% 
+  t() %>% 
+  data.frame() %>% 
+  rownames_to_column(var = "N") %>% 
+  set_names(c("N","NMB")) %>% 
+  na.omit() %>% 
+  mutate(N = 10^as.numeric(paste0(N))) %>% 
+  tbl_df()
+
+stopCluster(cl)
+
+nc <- detectCores() 
+cl <- parallel::makeCluster(nc)
+doParallel::registerDoParallel(cl)
+clusterExport(cl, c("n"))
+n <- length(micro_sample_sizes)
+icer_micro1d_N <- 
+  foreach(i = icount(length(micro_sample_sizes)),.packages = "tcltk") %dopar% {
+    library("dplyr")
+    source(here::here("R/manifest.R"))
+    if(!exists("pb")) pb <- tkProgressBar("Parallel task", min=1, max=n)
+    setTkProgressBar(pb, i)  
+    icer_microsim_1d %>% get_microsim_nmb(n = 10^micro_sample_sizes[i])
+  } %>% 
+  set_names(micro_sample_sizes) %>% 
+  bind_rows() %>% 
+  t() %>% 
+  data.frame() %>% 
+  rownames_to_column(var = "N") %>% 
+  set_names(c("N","NMB")) %>% 
+  na.omit() %>% 
+  mutate(N = 10^as.numeric(paste0(N))) %>% 
+  tbl_df()
+stopCluster(cl)
+
+des_sample_sizes <- icer_des_N$N
+
+labels <- seq(2,10.5,0.5) #log10(des_sample_sizes)
+labels[(labels - floor(labels)) != 0] <- ""
+
+icer_micro_N_final <- 
+  icer_micro_N %>% 
+  mutate(cycle = "Yearly Cycle") %>% 
+  bind_rows(icer_micro1d_N %>% mutate(cycle = "Daily Cycle")) 
+
+
+lines <- data.frame(model=c("DEQ","Markov","Markov Corrected"),
+                    NMB=c(icer_deq["NMB"],icer_mar["NMB"],icer_mar_corr["NMB"]),stringsAsFactors = F) 
+
+dots <-   icer_des_N %>% mutate(model="DES") %>% 
+  bind_rows(icer_micro_N %>% mutate(model="Microsim Yearly")) %>% 
+  bind_rows(icer_micro1d_N %>% mutate(model="Microsim Daily")) 
+
+
+ggplot() +
+  geom_hline(data=lines,aes(yintercept=NMB,lty=model,colour=model,size=model)) +
+  scale_linetype_manual(name="",values=c("solid","dashed","dotdash")) + 
+  scale_color_manual(name="",values = c("black","black","orange")) + 
+  scale_size_manual(name="",values = c(0.5,0.5,0.8)) +
+  new_scale_color() +
+  geom_point(data=dots,aes(x=N,y=NMB,shape=model,colour=model)) +
+  scale_color_manual(name="",values = c("black","blue","red")) +
+  scale_shape_manual(name="",values = c(18,10,4)) +
+  theme_bw() +
+  ylab("NMB\n(Genotype vs. Reference)") + 
+  xlab("Number of Simulated Patients\n(log10)") + 
+  scale_x_continuous(breaks = 10^seq(2,10.5,0.5), labels = labels, trans="log10") +
+  theme(panel.grid.minor = element_blank())
+
+
+# icer_des_N %>% 
+#   ggplot(aes(x=N,y=NMB)) +
+#   geom_point()  + 
+#   theme_bw() + 
+#   geom_hline(aes(yintercept = icer_deq["NMB"]),lty=2)+
+#   geom_hline(aes(yintercept = icer_mar["NMB"]),lty=2,colour="red") +
+#   ylab("NMB\n(Genotype vs. Reference)") + 
+#   xlab("Number of Simulated Patients\n(log10)") + 
+#   scale_x_continuous(breaks = 10^seq(2,10.5,0.5), labels = labels, trans="log10") + 
+#   annotate("text",y=icer_deq[["NMB"]],x=1e3,label = "DEQ: NMB",hjust=0) +
+#   annotate("text",y=icer_mar[["NMB"]],x=10^2,label = "Markov: NMB",hjust=0,colour="red") +
+#   annotate("text",y=icer_mar_corr[["NMB"]],x=10^4,label = "Markov Corrected: NMB",hjust=0,colour="blue") +
+#   ylim(c(-1000,1000)) + 
+#   geom_point(data = icer_micro_N_final, aes(colour = cycle)) 
+
 ```
+
+
 

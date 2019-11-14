@@ -123,7 +123,7 @@ params_psa_full <- list(
   
   # Disutilities
   d_a   = function(x) qunif(p = x, min = 0.0, max = 0.2),              # Disutility of A
-  d_at  = function(x) qunif(p = x, min = 0, max = params$horizon),                 # Duration of A in years.
+  d_at  = function(x) qunif(p = x, min = params$d_at, max = params$d_at),                 # Duration of A in years.
   d_b   = function(x) qunif(p = x, min = 0, max = 0.3),              # Disutility of B
   
   # Discounting
@@ -148,11 +148,11 @@ params_psa_realistic <- list(
   p_o  = function(x) qunif(p = x, min = 0.0, max = 1),                # Probability of ordering test (overwritten by runs to 0 and 1)
   p_bd = function(x) qbeta(p = x, shape1 = params$p_bd*100, shape2 = 100-100*params$p_bd),                       # Probability of death from B
   p_g  = function(x) qbeta(p = x, shape1 = params$p_g*100, shape2 = 100-100*params$p_g),              # Probability of genetic variant
-  r_a_pct = function(x)  100* qbeta(p = x, shape1 = params$r_a_pct, shape2 = 100-params$r_a_pct),              # Percentage who develop condition.
+  r_a_pct = function(x)  100 * qbeta(p = x, shape1 = params$r_a_pct, shape2 = 100-params$r_a_pct),              # Percentage who develop condition.
   r_a_dur = function(x) qunif(p = x, min = 1e-7, max =20),              # Condition indication rate duration (in years).
   r_b_pct = function(x) 100* qbeta(p = x, shape1 = params$r_b_pct, shape2 = 100-params$r_b_pct),               # Adverse drug event percentage
-  r_b_dur = function(x) qunif(p = x, min = 0, max = 10),               # Adverse drug event duration (in years). 
-  rr_b = function(x) qunif(p = x, min = 0.4, max = 1),                # Reduced relative risk of B
+  r_b_dur = function(x) qunif(p = x, min = 0.01, max = 2),               # Adverse drug event duration (in years). 
+  rr_b = function(x) qunif(p = x, min = 0.6, max = 1),                # Reduced relative risk of B
   
   # Costs
   c_a   = function(x) qpois(p = x, lambda = params$c_a),              # Cost of Event A
@@ -160,11 +160,11 @@ params_psa_realistic <- list(
   c_bd  = function(x) qpois(p = x, lambda = params$c_bd),             # Cost of Event B death
   c_tx  = function(x) qpois(p = x, lambda = params$c_tx*365)/365,                 # Cost of normal treatment
   c_alt = function(x) qpois(p = x, lambda = params$c_alt*365)/365,                # Cost of alternate treatment
-  c_t   = function(x) qunif(p = x, min = 50,max=150),               # Cost of test
+  c_t   = function(x) qunif(p = x, min = 0,max=400),               # Cost of test
   
   # Disutilities
   d_a   = function(x) qbeta(p = x, shape1 = params$d_a*100, shape2 = 100-100*params$d_a),              # Disutility of A
-  d_at  = function(x) qunif(p = x, min = 0, max = 2),                 # Duration of A in years.
+  d_at  = function(x) qunif(p = x, min = params$d_at, max = params$d_at),                 # Duration of A in years.
   d_b   = function(x) qbeta(p = x, shape1 = params$d_b*100, shape2 = 100-100*params$d_b),              # Disutility of B
   
   # Discounting
@@ -175,5 +175,10 @@ params_psa_realistic <- list(
 
 
 
+#params calcualted based on other parameter values
+params_psa_realistic_depend <- list(
+  r_a = function(x) inst_rate(x$r_a_pct/100,x$r_a_dur),
+  r_b = function(x) inst_rate(x$r_b_pct/100,x$r_b_dur)
+)
 
 
