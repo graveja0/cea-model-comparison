@@ -184,6 +184,8 @@ microsim_run_corr <- function(params, N = NULL, method="beginning")
         m.M[, 1] <- v.M_Init         # initial health state for all individuals
         
         zerocol <- as.data.frame(setNames(replicate(length(v.n),numeric(0), simplify = F),v.n))
+        zerocol[1,] <- 0
+        
         ct <- vector("list",n.t)
       
         
@@ -265,44 +267,40 @@ microsim_run_corr <- function(params, N = NULL, method="beginning")
         ee            <- numeric(3)
         c.test        <- numeric(3)
         c.drug        <- numeric(3)
-        d.r           <- (1 + disc)^(1/interval)-1
-        v.dwc         <- 1 / (1 + d.r) ^ (0:(n.t-1)) # calculate discount weights for costs for each cycle based on discount rate d.r
-        v.dwe         <- v.dwc  # Use same discount for qaly
+        d.r  <- inst_rate(1-1/(1 + disc), 1)
         
         for(i in 1:3)
         {
           if(nrow(mm[[i]]) > 0)
           {
+
                 dd        <- (if(i==3) c_alt else c_tx)*365/interval
-                m0        <- rbind(c(sum(mm[[i]][1,]),rep(0,ncol(mm[[i]]))),mm[[i]])
-                m1        <- as.matrix(integrator(m0,method=method))
-                cc[i]     <- sum(as.vector(m1 %*% c(0,if(i==1) c_a+dd else c_a+dd+c_t,rep(dd,d_at*interval),c_a+c_bs+dd,c_bs+dd,dd,c_a+c_bd,c_bd,0,0,c_a+c_bs,c_bs)) * v.dwc)
-                ee[i]     <- sum(as.vector(m1 %*% c(1/interval,rep((1-d_a)/interval,d_at*interval),1/interval,rep((1-d_b)/interval,2),(1-d_b)/interval,rep(0,6))) * v.dwe)
-                c.test[i] <- if(i==1) 0 else sum(as.vector(m1 %*% c(0,c_t,0,c_t,0,0,c_t,0,0,0,c_t,0)) * v.dwe)
-                c.drug[i] <- sum(as.vector(m1 %*% c(0,dd,rep(dd,d_at*interval),rep(dd,3),rep(0,6))) * v.dwc)
+                m0        <- rbind(c(sum(mm[[i]][1,]),rep(0,ncol(mm[[i]]))),mm[[i]]) %>% as.matrix() #add back t=0 row (initial states)
+                m1        <- integrator(diag(exp( 0:n.t * -d.r)) %*% m0, method=method) #first discount then integrate
+                cc[i]     <- sum(as.vector(m1 %*% c(0,if(i==1) c_a+dd else c_a+dd+c_t,rep(dd,d_at*interval),c_t+c_a+c_bs+dd,c_bs+dd,dd,c_t+c_a+c_bd,c_bd,0,0,c_t+c_a+c_bs,c_bs)))
+                ee[i]     <- sum(as.vector(m1 %*% c(1/interval,rep((1-d_a)/interval,d_at*interval),1/interval,rep((1-d_b)/interval,2),(1-d_b)/interval,rep(0,6))))
+                c.test[i] <- if(i==1) 0 else sum(as.vector(m1 %*% c(0,c_t,rep(0,d_at*interval),c_t,0,0,c_t,0,0,0,c_t,0)))
+                c.drug[i] <- sum(as.vector(m1 %*% c(0,dd,rep(dd,d_at*interval),rep(dd,3),rep(0,6))))
             }
         }
 
         tout  <- map(mm, function(x) mutate(x,cycle=as.integer(row.names(x)))) %>% do.call("bind_rows",.) %>% 
           group_by(cycle) %>% summarise_all(sum) %>% select(-cycle)
-        mmm <- rbind(c(sum(tout[1,]),rep(0,ncol(tout[1,])-1)),tout) %>% 
-          integrator(method=method) %>% as.matrix()
+        mmm <- rbind(c(sum(tout[1,]),rep(0,ncol(tout[1,])-1)),tout) %>% as.matrix()
+        mmm2 <- integrator(mmm,method = method)
+        dmm <- integrator(diag(exp( 0:n.t * -d.r)) %*% mmm, method=method)
         
         #other
-        possible  <- mmm %*% c(1,rep(1,d_at*interval+1),rep(1,3),rep(0,6))
-        possible  <- as.vector(possible) * v.dwe
-        fatal_b   <- sum(mmm[n.t,c("HBD","ABD","BD2")])
-        living    <- n.i - sum(mmm[n.t,c("HBD","ABD","BD2","D","HBSD","ABSD")])
-        disutil_a <- mmm  %*% c(0,rep(d_a,d_at*interval),rep(0,10))
-        disutil_a <- as.vector(disutil_a) * v.dwe
-        disutil_b <- mmm  %*% c(0,rep(0,d_at*interval+1),d_b,d_b,d_b,rep(0,6))
-        disutil_b <- as.vector(disutil_b) * v.dwe
-        c.treat   <- mmm  %*% c(0,c_a,rep(0,d_at*interval),c_a+c_bs,c_bs,0,c_a+c_bd,c_bd,0,0,c_a+c_bs,c_bs)
-        c.treat   <- as.vector(c.treat) * v.dwc
+        possible  <- as.vector(dmm %*% c(1,rep(1,d_at*interval+1),rep(1,3),rep(0,6)))
+        fatal_b   <- sum(mmm2[n.t,c("HBD","ABD","BD2")])
+        living    <- n.i - sum(mmm2[n.t,c("HBD","ABD","BD2","D","HBSD","ABSD")])
+        disutil_a <- as.vector(dmm  %*% c(0,rep(d_a,d_at*interval),rep(0,10)))
+        disutil_b <- as.vector(dmm  %*% c(0,rep(0,d_at*interval+1),d_b,d_b,d_b,rep(0,6)))
+        c.treat   <- as.vector(dmm  %*% c(0,c_a,rep(0,d_at*interval),c_a+c_bs,c_bs,0,c_a+c_bd,c_bd,0,0,c_a+c_bs,c_bs))
         
         list(
             raw_ct = mm,
-            count = mmm,
+            dmm = dmm,
             pop     = df.Pop,
             results = c(dCOST       = sum(cc),
                         dQALY       = sum(ee),
@@ -331,7 +329,6 @@ microsim_icer_corr <- function(params, reference=NULL, genotype=NULL, method="li
     reference    <- reference$results
     
     .Random.seed <- seed
-    
     params$p_o   <- 1.0 # Genotype testing upon indication
     genotype     <- microsim_run_corr(params,method=method,...)
     genotype     <- genotype$results
