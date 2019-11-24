@@ -318,7 +318,7 @@ microsim_run_corr <- function(params, N = NULL, method="beginning")
 }
 
 
-microsim_icer_corr <- function(params, reference=NULL, genotype=NULL, method="life-table",seed=123,...)
+microsim_icer_corr <- function(params, reference=NULL, genotype=NULL, method="life-table",seed=NULL,...)
 {
     if(!is.null(seed)) set.seed(seed)
     
@@ -341,5 +341,4 @@ microsim_icer_corr <- function(params, reference=NULL, genotype=NULL, method="li
        dQALY.test = unname(genotype['dQALY'])
     )
 }
-
 

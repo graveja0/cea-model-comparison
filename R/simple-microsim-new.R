@@ -125,6 +125,8 @@ microsim_run <- function(params, N = NULL, method="beginning")
         m.M[, 1] <- v.M_Init         # initial health state for all individuals 
         
         zerocol <- as.data.frame(setNames(replicate(length(v.n),numeric(0), simplify = F),v.n))
+        zerocol[1,] <- 0
+        
         ct <- vector("list",n.t)
         
         # Time for-loop from cycle 1 through n.t
@@ -203,39 +205,34 @@ microsim_run <- function(params, N = NULL, method="beginning")
         ee            <- numeric(3)
         c.test        <- numeric(3)
         c.drug        <- numeric(3)
-        d.r           <- (1 + disc)^(1/interval)-1
-        v.dwc         <- 1 / (1 + d.r) ^ (0:(n.t-1)) # calculate discount weights for costs for each cycle based on discount rate d.r
-        v.dwe         <- v.dwc  # Use same discount for qaly
+        d.r  <- inst_rate(1-1/(1 + disc), 1)
         
         for(i in 1:3)
         {
             if(nrow(mm[[i]]) > 0)
             {
                 dd        <- (if(i==3) c_alt else c_tx)*365/interval
-                m0 <- rbind(c(sum(mm[[i]][1,]),rep(0,ncol(mm[[i]]))),mm[[i]])
-                m1        <- as.matrix(integrator(m0,method=method))
-                cc[i]     <- sum(as.vector(m1 %*% c(0,if(i==1) c_a+dd else c_a+dd+c_t,rep(dd,d_at*interval),c_bs+dd,dd,c_bd,0,0)) * v.dwc)
-                ee[i]     <- sum(as.vector(m1 %*% c(1/interval,rep((1-d_a)/interval,d_at*interval),1/interval,(1-d_b)/interval,(1-d_b)/interval,0,0,0)) * v.dwe)
-                c.test[i] <- if(i==1) 0 else sum(m1[,"A1"]*c_t*v.dwc)
-                c.drug[i] <- sum(as.vector(m1 %*% c(0,dd,rep(dd,d_at*interval),dd,dd,0,0,0)) * v.dwc)
+                m0        <- rbind(c(sum(mm[[i]][1,]),rep(0,ncol(mm[[i]]))),mm[[i]]) %>% as.matrix() #add back t=0 row (initial states)
+                m1        <- integrator(diag(exp( 0:n.t * -d.r)) %*% m0, method=method) #first discount then integrate
+                cc[i]     <- sum(as.vector(m1 %*% c(0,if(i==1) c_a+dd else c_a+dd+c_t,rep(dd,d_at*interval),c_bs+dd,dd,c_bd,0,0)))
+                ee[i]     <- sum(as.vector(m1 %*% c(1/interval,rep((1-d_a)/interval,d_at*interval),1/interval,(1-d_b)/interval,(1-d_b)/interval,0,0,0)))
+                c.test[i] <- if(i==1) 0 else sum(m1[,"A1"]*c_t)
+                c.drug[i] <- sum(as.vector(m1 %*% c(0,dd,rep(dd,d_at*interval),dd,dd,0,0,0)))
             }
         }
         
         tout  <- map(mm, function(x) mutate(x,cycle=as.integer(row.names(x)))) %>% do.call("bind_rows",.) %>% 
             group_by(cycle) %>% summarise_all(sum) %>% select(-cycle)
-        mmm <- rbind(c(sum(tout[1,]),rep(0,ncol(tout[1,])-1)),tout) %>% 
-            integrator(method=method) %>% as.matrix()
+        mmm <- rbind(c(sum(tout[1,]),rep(0,ncol(tout[1,])-1)),tout) %>% as.matrix()
+        mmm2 <- integrator(mmm,method = method)
+        dmm <- integrator(diag(exp( 0:n.t * -d.r)) %*% mmm, method=method)
             
-        possible  <- mmm %*% c(1,rep(1,d_at*interval+1),1,1,0,0,0)
-        possible  <- as.vector(possible) * v.dwe
-        fatal_b   <- sum(mmm[n.t,c("BD1","BD2")])
-        living    <- n.i - sum(mmm[n.t,c("BD1","BD2","D")])
-        disutil_a <- mmm  %*% c(0,rep(d_a,d_at*interval),0,0,0,0,0,0)
-        disutil_a <- as.vector(disutil_a) * v.dwe
-        disutil_b <- mmm  %*% c(0,rep(0,d_at*interval+1),d_b,d_b,0,0,0)
-        disutil_b <- as.vector(disutil_b) * v.dwe
-        c.treat   <- mmm  %*% c(0,c_a,rep(0,d_at*interval),c_bs,0,c_bd,0,0)
-        c.treat   <- as.vector(c.treat) * v.dwc
+        possible  <- as.vector(dmm %*% c(1,rep(1,d_at*interval+1),1,1,0,0,0))
+        fatal_b   <- sum(mmm2[n.t,c("BD1","BD2")])
+        living    <- n.i - sum(mmm2[n.t,c("BD1","BD2","D")])
+        disutil_a <- as.vector(dmm  %*% c(0,rep(d_a,d_at*interval),0,0,0,0,0,0))
+        disutil_b <- as.vector(dmm  %*% c(0,rep(0,d_at*interval+1),d_b,d_b,0,0,0))
+        c.treat   <- as.vector(dmm  %*% c(0,c_a,rep(0,d_at*interval),c_bs,0,c_bd,0,0))
 
         list(
             raw_ct = mm,
