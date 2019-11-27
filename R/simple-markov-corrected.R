@@ -13,6 +13,8 @@ markov_corr_tp <- function(params, v.n, t)
     #secular death risk -- All same as original Markov computation
     r.death   <- inst_rate(gompertz_ratio2(t, interval, shape, rate), 1)
     rr        <- ifelse(p_g==1 & p_o==1, rr_b, 1)
+    r_a <- r_a/interval
+    r_b <- r_b/interval
 
     # Always start on zeros, continuous transition rates, i.e. tr
     tr <-  matrix(0, nrow = length(v.n), ncol = length(v.n), dimnames = list(v.n, v.n))
@@ -42,7 +44,7 @@ markov_corr_tp <- function(params, v.n, t)
     tr["TUN", "PTUN"]  <- tr["A", "D"]
     tr["TUN", "TUN"]   <- -sum(tr["A", c("BS", "BD", "D")]) # semi-Markovian
     
-    x <- as.matrix(expm(tr/interval))
+    x <- as.matrix(expm(tr))
 
     # Adding skip overs back to probabilities for the accumulators
     # Attempted modification for accurate discounting integration
@@ -92,7 +94,6 @@ markov_corr <- function(params, N=NULL, gene=0, test=0, method="beginning")
 {
   if (!is.null(N)) params$n <- N
   
-  params$disc_rate <- inst_rate(1-1/(1 + params$disc), 1)
   params$p_g <- gene
   params$p_o <- test
   
@@ -104,7 +105,7 @@ markov_corr <- function(params, N=NULL, gene=0, test=0, method="beginning")
 
     n.t <- dim(m.M)[1]
     #### 5. Computation ####
-    d.r  <- inst_rate(1-1/(1 + params$disc), 1)
+    d.r  <- inst_rate(1-1/(1 + params$disc), interval)
     v.dw <- (exp(-d.r*(0:(n.t-2))) - exp(-d.r*(1:(n.t-1))))/d.r
     
     # adjust counts using integration methods
