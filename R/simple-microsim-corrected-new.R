@@ -291,11 +291,11 @@ microsim_run_corr <- function(params, N = NULL, method="beginning")
         dmm <- integrator(diag(exp( 0:n.t * -d.r)) %*% mmm, method=method)
         
         #other
-        possible  <- as.vector(dmm %*% c(1,rep(1,d_at*interval+1),rep(1,3),rep(0,6)))
+        possible  <- as.vector(dmm %*% c(1,rep(1,d_at*interval+1),rep(1,3),rep(0,6)))/interval
         fatal_b   <- sum(mmm2[n.t,c("HBD","ABD","BD2")])
         living    <- n.i - sum(mmm2[n.t,c("HBD","ABD","BD2","D","HBSD","ABSD")])
-        disutil_a <- as.vector(dmm  %*% c(0,rep(d_a,d_at*interval),rep(0,10)))
-        disutil_b <- as.vector(dmm  %*% c(0,rep(0,d_at*interval+1),d_b,d_b,d_b,rep(0,6)))
+        disutil_a <- as.vector(dmm  %*% c(0,rep(d_a,d_at*interval),rep(0,10)))/ interval
+        disutil_b <- as.vector(dmm  %*% c(0,rep(0,d_at*interval+1),d_b,d_b,d_b,rep(0,6)))/ interval
         c.treat   <- as.vector(dmm  %*% c(0,c_a,rep(0,d_at*interval),c_a+c_bs,c_bs,0,c_a+c_bd,c_bd,0,0,c_a+c_bs,c_bs))
         
         list(
