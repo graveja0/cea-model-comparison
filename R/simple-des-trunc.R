@@ -25,7 +25,7 @@ tdes_simulation <- function(params, N = NULL)
     x$treat[!is.na(x$indication) & x$tested & x$variant] <- "Alternate"
     
     rr <- ifelse(x$treat=="Alternate", rr_b, 1.0)
-    x$adverse <- x$indication + suppressWarnings(rexp(n, r_b*rr/365))
+    x$adverse <- x$indication + trunc(suppressWarnings(rexp(n, r_b*rr/365))/365)*365
     x$adverse[is.nan(x$adverse)] <- NA
     x$adverse[x$adverse > horizon*365] <- NA
     x$adverse[x$secular_death < x$adverse] <- NA
