@@ -13,12 +13,15 @@ markov_corr_tp <- function(params, v.n, t)
     #secular death risk -- All same as original Markov computation
     r.death   <- inst_rate(gompertz_ratio2(t, interval, shape, rate), 1)
     rr        <- ifelse(p_g==1 & p_o==1, rr_b, 1)
-    r_a <- r_a/interval
-    r_b <- r_b/interval
+    r_a <- r_a/interval # Rates are in terms of interval units
+    r_b <- r_b/interval # Rates are in terms of interval units
 
     # Always start on zeros, continuous transition rates, i.e. tr
     tr <-  matrix(0, nrow = length(v.n), ncol = length(v.n), dimnames = list(v.n, v.n))
 
+    #########################################
+    ## transition _RATES_ into matrix form
+    
     # Health to Indication or secular death
     tr["H", "A"]  <- r_a
     tr["H", "D"]  <- r.death
@@ -31,28 +34,44 @@ markov_corr_tp <- function(params, v.n, t)
     # Post adverse event to secular death
     tr["BS","BSD"]  <- r.death
     
+    # Diagnolize to balance Markovian transitions
+    # Makes sure no one is created or destroyed
     diag(tr)      <- -rowSums(tr)        # Markovian rate specification for rates
-      
+    
+    ###########################################
+    ## Non-Markovian Accumulators (as rates) Added to matrix
+    ## I.e., do not include in inverse diagonal
+    
     # Add accumulators (Non-Markovian)
     tr["H", "CUM_A"]   <- tr["H", "A"]        # Accumulator for A is non-Markovian
     tr["H", "CUM_T"]   <- p_o*tr["H", "A"]    # Accumulator for testing is non-Markovian
     
     # Tunnel accumulator for A
     tr["H", "TUN"]     <- tr["H", "A"]
+    # TUN Now duplicates transitions in from H, just like A
+    # PTUN is a "waste" bucket necessary for bookkeeping
+    # Transitions into PTUN keep track of things that exited tunnel state
+    # for reasons other than expiration of the tunnel, i.e. external risks
     tr["TUN", "PTUN"]  <- tr["A", "BS"] # PTUN is just used as an outbound bucket
     tr["TUN", "PTUN"]  <- tr["A", "BD"]
     tr["TUN", "PTUN"]  <- tr["A", "D"]
     tr["TUN", "TUN"]   <- -sum(tr["A", c("BS", "BD", "D")]) # semi-Markovian
     
+    ###########################################
+    ## Embed into unit (interval) timestep the matrix
+    ## x is now probabilities
     x <- as.matrix(expm(tr))
 
+    ###########################################
     # Adding skip overs back to probabilities for the accumulators
     # Attempted modification for accurate discounting integration
     x["A", "CUM_BS"]    <- x["A", "BSD"]+x["A", "BS"]
     x["H", "CUM_BS"]    <- x["H", "BSD"]+x["H", "BS"]
 
     # Leave tunnel state on yearly cycle (zero is null transfer back)
-    x["TUN", "TUN"]    <- 0
+    x["TUN", "TUN"]    <- 0 # This patches the semi-Markovian 
+    # PROBLEM: This doesn't work if interval is not yearly
+    # E.G. one needs a TUN1 through TUN12 for monthly, etc to work on other intervals
     
     # The alpha / beta was handled by the matrix exponent
 
