@@ -74,83 +74,122 @@ tbl %>%
     table.width = pct(75)
   ) %>% 
   gtsave(filename = "figs/01_model-parameters.png")
+tbl %>% write.csv("figs/02_model-parameters.csv")
+
 ```
 ## Base Case Results
 
 ```{r base-case-results, eval = TRUE, cache = FALSE}
-source("R/simple-params.R")
 params_orig <- params
 
-params$horizon = 10
-params$interval = 1
+convert_to_df <- function(df) df %>% as.data.frame() %>% rownames_to_column() %>% set_names(c("param","value")) %>% spread(param,value) %>% select(-contains("job"))
+# Differntial Equations
 icer_deq <- deq_icer(params)
-icer_mar <- markov_comb(params) 
-icer_mar_corr <- markov_comb_corr(params)
+
+# Uncorrected Markov 
+params$interval = 1
+icer_mar_corr_1y <- markov_comb_corr(params)
+params$interval = 12
+icer_mar_corr_1m <- markov_comb_corr(params)
 params$interval = 365
-icer_mar_test <- markov_comb(params) 
-icer_mar_corr_test <- markov_comb_corr(params) 
+icer_mar_corr_1d <- markov_comb_corr(params)
 
+# Uncorrected Markov 
+params$interval = 1
+icer_mar_1y <- markov_comb(params) 
+params$interval = 12
+icer_mar_1m <- markov_comb(params) 
+params$interval = 365
+icer_mar_1d <- markov_comb(params) 
+
+# Discrete Event Simulation
 icer_des <- des_icer(params,N = 1e7, seed = 123)
-icer_microsim <- microsim_icer(params, N = 1e6, seed=123)
 
-names(icer_mar) <- names(icer_mar_corr) <- names(icer_des) <- names(icer_microsim) <- names(icer_deq)
-icer_results <- 
-  list("DEQ" = icer_deq,
-       "MRKCHT_UADJ" = icer_mar,
-       "MRKCHT_EMB" = icer_mar_corr,
-       "DES" = icer_des,
-       "MICRO" = icer_microsim)
-icer_results %>% 
-  write_rds(here("output/icer-results.R"))
+# Microsimulation 
+load("~/box/microsim_runs/microsim_1b_daily.rda")
+icer_micro_d <- runs[1:(1e7/1e3),] %>% apply(2,mean) 
+
+load("~/box/microsim_runs/microsim_yr_nov_1b.rda")
+icer_micro_y <- runs[1:(1e7/1e3),] %>% apply(2,mean) 
+
+load("~/box/microsim_runs/microsim_corr_yr_nov_1b.rda")
+icer_micro_corr_y <- runs[1:(1e7/1e3),] %>% apply(2,mean) 
+
+set.seed(12345)
+icer_micro_corr_y1b <- runs[sample(1:nrow(runs),1e9/1e3,replace=TRUE),] %>% apply(2,mean)
+
+1000000000/1e3
+result <-
+  list("DEQ" = convert_to_df(icer_deq), 
+       "MARKOV_DAY" = convert_to_df(icer_mar_1d),
+       "MARKOV_MON" = convert_to_df(icer_mar_1m),
+       "MARKOV_YR" = convert_to_df(icer_mar_1y),
+       "MARKOV_EMB_DAY" = convert_to_df(icer_mar_corr_1d),
+       "MARKOV_EMB_MON" = convert_to_df(icer_mar_corr_1m),
+       "MARKOV_EMB_YR" = convert_to_df(icer_mar_corr_1y),
+       "DES" = convert_to_df(icer_des),
+       "MICRO_DAY" = convert_to_df(icer_micro_d),
+       "MICRO_YR" = convert_to_df(icer_micro_y),
+       "MICRO_CORR_YR" = convert_to_df(icer_micro_corr_y))
 
 base_case_result <- 
-  icer_deq %>% 
-    bind_rows(icer_mar) %>% 
-    bind_rows(icer_mar_corr) %>% 
-    bind_rows(icer_des) %>% 
-    bind_rows(icer_microsim) %>% 
-    mutate(model = c("DEQ","MRKCHT_UNADJ","MRKCHT_EMB","DES","MICRO")) %>% 
+  result %>% 
+    bind_rows(.id = "model") %>% 
     select(model,ICER,NMB, everything()) %>% 
     gather(output, value, -model) %>% 
     tbl_df() %>% 
     separate(col = output,into=c("output","strategy"))  
 
 table_main_results <- 
-  base_case_result %>% 
+   base_case_result %>% 
+        filter(is.na(strategy)) %>% 
+        mutate(output = factor(output,levels = c("dQALY","dCOST","ICER","NMB"), 
+                               labels = c("Mean QALYs","Mean Costs","ICER","Net Monetary Benefit"))) %>% 
+          mutate(model = factor(model, levels = names(result), 
+                        labels = c(
+"Differential Equations","Embedded Markov Cohort - Yearly Cycle","Markov Cohort - Daily Cycle","Markov Cohort - Monthly Cycle","Markov Cohort - Yearly Cycle","Discrete Event Simulation","Microsimulation - Yearly Cycle","Microsimulation - Daily Cycle","Embedded Microsimulation - Yearly Cycle"
+
+                        ))) %>% 
+        select(model,output,incremental=value) %>% 
+  bind_rows(
+      base_case_result %>% 
   filter(!is.na(strategy)) %>% 
   spread(strategy,value) %>% 
   mutate(output = factor(output,levels = c("dQALY","dCOST"), 
                          labels = c("Mean QALYs","Mean Costs"))) %>% 
-  mutate(model = factor(model, levels = c("DEQ","DES","MRKCHT_UNADJ","MRKCHT_EMB","MICRO"), 
-                        labels = c("Differential Equations","Discrete Event Simulation","Markov Cohort - Unadjusted","Markov Cohort - Embedded","Individual Microsimulation"))) %>% 
+  mutate(model = factor(model, levels = names(result), 
+                        labels = c(
+                          "Differential Equations","Embedded Markov Cohort - Yearly Cycle","Markov Cohort - Daily Cycle",
+                          "Markov Cohort - Monthly Cycle","Markov Cohort - Yearly Cycle","Discrete Event Simulation",
+                          "Microsimulation - Yearly Cycle","Microsimulation - Daily Cycle","Embedded Microsimulation - Yearly Cycle"
+                        ))) %>% 
   arrange(output,model) %>% 
   select(output,model,ref,test) %>% 
-  mutate(incremental = test - ref) %>% 
-  bind_rows(
-      base_case_result %>% 
-        filter(is.na(strategy)) %>% 
-        mutate(output = factor(output,levels = c("dQALY","dCOST","ICER","NMB"), 
-                               labels = c("Mean QALYs","Mean Costs","ICER","Net Monetary Benefit"))) %>% 
-        mutate(model = factor(model, levels = c("DEQ","DES","MRKCHT_UNADJ","MRKCHT_EMB","MICRO"), 
-                          labels = c("Differential Equations","Discrete Event Simulation","Markov Cohort - Unadjusted","Markov Cohort - Embedded","Individual Microsimulation"))) %>% 
-        select(model,output,incremental=value)
+  mutate(incremental = test - ref) 
   ) %>% 
   mutate_at(vars(ref,test,incremental),function(x) ifelse(abs(x)<100,round(x,3),round(x,0))) %>%  
   mutate(output = ifelse(model == "Differential Equations",output, "")) %>% 
   mutate_all(funs(as.character)) %>% 
   mutate_at(vars(ref,test), function(x) ifelse(is.na(x) | x=="NA", "",x)) %>% 
+  select(output,model,ref,test,incremental) %>% 
   set_colnames(c("Outcome","Model Type","No Testing (ref.)","Genetic Testing","Incremental")) #%>% 
   #tangram(., style= "Hmisc", caption="Base Case Results",id = "base_case")
 
+table_main_results %>% 
+  write.csv(here("output/icer-results.csv"))
+
+
+which_to_show <- which(pull(table_main_results[,2],1) %in% c("Differential Equations","Markov Cohort - Yearly Cycle", "Discrete Event Simulation"))
+
 table_main_results[,-1] %>% 
   gt(rowname_col = "Model Type") %>% 
-  tab_row_group(rows = 1:5, group = "Mean QALYs") %>% 
-  tab_row_group(rows = 6:10, group = "Mean Costs") %>% 
-  tab_row_group(rows = 11:15, group = "ICER") %>% 
-  tab_row_group(rows = 16:20, group = "Net Monetary Benefit") %>% 
+  tab_row_group(rows = 1:9, group = "ICER") %>% 
+  tab_row_group(rows = 10:18, group = "Net Monetary Benefit (NMB)") %>% 
+  tab_row_group(rows = 19:27, group = "Mean QALYs") %>% 
+  tab_row_group(rows = 28:36, group = "Mean Costs") %>% 
   tab_footnote(footnote = "QALY = Quality-Adjusted Life Years", cells_group("Mean QALYs")) %>% 
   tab_footnote(footnote = "ICER = Incremental Cost-Effectiveness Ratio", cells_group("ICER")) %>% 
-  tab_footnote(footnote = "Willingness to Pay = $100,000 per QALY",cells_group("Net Monetary Benefit")) %>% 
+  #tab_footnote(footnote = "Willingness to Pay = $100,000 per QALY",cells_group("Net Monetary Benefit")) %>% 
   #tab_source_note(source_note = "Source: Source") %>% 
   #tab_source_note(source_note = "Note: Another note")  %>% 
   tab_options(
@@ -158,6 +197,145 @@ table_main_results[,-1] %>%
   ) %>% 
   gtsave(filename = "figs/01_main-results.png")
   
+```
+
+## Model Convergence
+
+```{r}
+library(tidyverse)
+library(here)
+library(deSolve)
+library(dplyr)
+library(purrr)
+library(flexsurv)
+library(furrr)
+library(conflicted)
+library(ggnewscale)
+# conflicted::conflict_scout()
+# heemood and purrr: modify
+conflict_prefer("filter", "dplyr")
+conflict_prefer("set_names", "magrittr")
+source(here::here("R/manifest.R"))
+
+#### Convergence ####
+icer_deq <- deq_icer(params)
+icer_mar <- markov_comb(params) 
+icer_mar_corr <- markov_comb_corr(params)
+
+icer_des <- read_rds("~/box/microsim_runs/convergence/icer_des_1k.rds")
+
+load("~/Box Sync/microsim_runs/convergence/icer_micro_N_e6_9.rds")
+icer_micro_d <- icer_micro1d_N
+icer_micro_y <- icer_micro_N
+load("~/Box Sync/microsim_runs/convergence/icer_micro_N_e9_10.rds")
+icer_micro_d <- icer_micro_d %>% bind_rows(icer_micro1d_N)
+icer_micro_y <- icer_micro_y %>% bind_rows(icer_micro_N)
+load("~/Box Sync/microsim_runs/convergence/icer_micro_N_e10_11.rds")
+icer_micro_d <- icer_micro_d %>% bind_rows(icer_micro1d_N)
+icer_micro_y <- icer_micro_y %>% bind_rows(icer_micro_N)
+
+icer_micro_corr_y <- read_rds("~/Box Sync/microsim_runs/convergence/icer_micro_corr_y_e6_9_nov.rds") %>% 
+    bind_rows(read_rds("~/Box Sync/microsim_runs/convergence/icer_micro_corr_y_e9_10_nov.rds")) %>% 
+    bind_rows(read_rds("~/Box Sync/microsim_runs/convergence/icer_micro_corr_y_e10_11_nov.rds"))
+
+
+#### p1 ####
+lines <- data.frame(model=c("DEQ","MARKOV","MARKOV-EMB"),
+                    NMB=c(icer_deq["NMB"],icer_mar["NMB"],icer_mar_corr["NMB"]),stringsAsFactors = F) 
+
+dots <-   icer_des %>% mutate(model="DES") %>% 
+    bind_rows(icer_micro_y %>% mutate(model="Microsim Yearly")) %>% 
+    bind_rows(icer_micro_d %>% mutate(model="Microsim Daily")) %>% 
+    bind_rows(icer_micro_corr_y %>% mutate(model="Microsim Yearly Corrected")) %>% 
+    group_by(model,N) %>% slice(1) %>% summarise(NMB=mean(NMB))
+
+
+ggplot() +
+    geom_hline(data=lines,aes(yintercept=NMB,lty=model,colour=model,size=model)) +
+    scale_linetype_manual(name="",values=c("solid","dashed","dotdash")) + 
+    scale_color_manual(name="",values = c("black","darkgreen","green")) + 
+    scale_size_manual(name="",values = c(0.5,0.5,0.8)) +
+    new_scale_color() +
+    geom_point(data=dots,aes(x=N,y=NMB,shape=model,colour=model,alpha=model)) +
+    scale_color_manual(name="",values = c("tan4","orange2","red3","blue")) +
+    scale_shape_manual(name="",values =  c(20,10,4,18)) +
+    scale_alpha_manual(name="",values = c(1,1,1,0.7)) +
+    theme_bw() +
+    ylab("NMB\n(Genotype vs. Reference)") + 
+    xlab("Number of Simulated Patients\n(log10)") + 
+    scale_x_continuous(breaks = 10^seq(2,12,1), labels = seq(2,12,1), trans="log10") +
+    theme(panel.grid.minor.y = element_blank())
+
+
+#### p2 ####
+icer_micro_d$timestep <- "MICROSIM-D"
+icer_micro_y$timestep <- "MICROSIM-Y"
+icer_micro_corr_y$timestep <- "MICROSIM-EMB-Y"
+icer_des$timestep <- "DES"
+
+micro <- rbind(icer_micro_d, icer_micro_y,icer_micro_corr_y)
+micro <- rbind(micro, icer_des[,c("NMB", "N", "seed", "iteration", "timestep")])
+micro$logN <- factor(round(log(micro$N,base = 10)))
+
+ll <- lines %>% mutate(timestep=model)
+
+# Micro Simulation Convergence
+library(directlabels)
+p <- 
+ggplot(data= micro %>% filter(N>1e3), aes(x=logN,y=NMB,color=timestep,fill=timestep),alpha=0.7) +
+    geom_boxplot(outlier.shape = NA) +
+    scale_color_manual(name="",values = c("grey40","orange2","red3","blue")) +
+    scale_fill_manual(name="",values = c("grey80","gold1","tomato","skyblue")) +
+    new_scale_color() +
+    geom_hline(data=ll,aes(yintercept=NMB,color=timestep,linetype=timestep)) + 
+    scale_linetype_manual(name="",values=c("solid","dashed","dotdash")) + 
+    scale_color_manual(name="",values = c("black","darkgreen","purple")) + 
+    scale_size_manual(name="",values = c(0.25,0.25,2)) +
+    xlab("Number of Simulated Patients\n(log10)") + 
+    theme_bw() + 
+    scale_x_discrete(breaks = 2:11, labels = c("2\n100","3\n1k","4\n10k","5\n100k","6\n1mil","7\n10mil","8\n100mil","9\n1bil","10\n10bil","11\n100bil")) + 
+    ylim(c(-1100,1100))
+p
+```
+
+## Model Run Time
+
+```{r}
+
+#### runtime ####
+load("~/Box Sync/microsim_runs/run_time_1e7/run_t_deq.rda")
+load("~/Box Sync/microsim_runs/run_time_1e7/run_t_des.rda")
+load("~/Box Sync/microsim_runs/run_time_1e7/run_t_mark_y.rda")
+load("~/Box Sync/microsim_runs/run_time_1e7/run_t_mark_d.rda")
+load("~/Box Sync/microsim_runs/run_time_1e7/run_t_mark_m.rda")
+load("~/Box Sync/microsim_runs/run_time_1e7/run_t_mark_corr_y.rda")
+load("~/Box Sync/microsim_runs/run_time_1e7/run_t_mark_corr_m.rda")
+load("~/Box Sync/microsim_runs/run_time_1e7/run_t_micro_y.rda")
+load("~/Box Sync/microsim_runs/run_time_1e7/run_t_micro_corr_yr_nov.rda")
+
+rt <- b_deq %>% mutate(model="DEQ") %>% 
+    bind_rows(b_des %>% mutate(model="DES (10mil)")) %>% 
+    bind_rows(b_mark_y %>% mutate(model="MARKOV-Y")) %>% 
+    bind_rows(b_mark_m %>% mutate(model="MARKOV-M")) %>% 
+    bind_rows(b_mark_d %>% mutate(model="MARKOV-D")) %>% 
+    bind_rows(b_mark_corr_y %>% mutate(model="MARKOV-EMB-Y")) %>% 
+    bind_rows(b_mark_corr_m %>% mutate(model="MARKOV-EMB-M")) %>%     
+    bind_rows(b_micro_y %>% mutate(model="MICROSIM-Y (10 mil)")) %>% 
+    bind_rows(b_micro_corr_y %>% mutate(model="MICROSIM-EMB-Y (10 mil)")) %>% 
+    mutate(times=time/10^9)
+    
+rt %>% group_by(model,expr) %>% 
+    summarise(med = quantile(times,0.5,na.rm=TRUE)) %>% 
+    arrange(desc(med))
+
+value_labs <- paste(seq(-3,4,0.5),paste0("\n"),signif(10^seq(-3,4,0.5),2),"sec")
+
+ggplot(rt) +
+    geom_boxplot(aes(x=reorder(model,-times),y=times),outlier.shape = 1,outlier.alpha = 0.5) +
+    scale_y_continuous(breaks = 10^seq(-3,4,0.5), 
+                       labels = value_labs, trans="log10") + ylab("log10(seconds)") + xlab("Method") +
+    coord_flip() + theme_bw()  + xlab("")
+
 ```
 
 ## PSA 

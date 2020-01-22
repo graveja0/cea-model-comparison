@@ -182,7 +182,7 @@ markov_comb <- function(params, method="life-table")
   dQALY.test  <- sum(wt*c(ref1$results["dQALY"], test1$results["dQALY"], test2$results["dQALY"]))
   
   c(ICER       = (dCOST.test-dCOST.ref)/(dQALY.test-dQALY.ref),
-    NMB        = (dCOST.ref-dCOST.test)+params$wtp*(dQALY.test-dQALY.ref),
+    NMB        = params$wtp*(dQALY.test-dQALY.ref)-(dCOST.test-dCOST.ref),
     dCOST.ref  = unname(dCOST.ref),
     dCOST.test = unname(dCOST.test),
     dQALY.ref  = unname(dQALY.ref),
