@@ -75,6 +75,7 @@ micro$logN <- factor(round(log(micro$N,base = 10)))
 
 ll <- lines %>% mutate(timestep=model)
 
+tiff("Micro Simulation Convergence.tiff",res=300,units="in",width=6.5, height=5)
 # Micro Simulation Convergence
 library(directlabels)
 p <- 
@@ -85,6 +86,7 @@ ggplot(data= micro %>% filter(N>1e3), aes(x=logN,y=NMB,color=timestep,fill=times
     new_scale_color() +
     geom_hline(data=ll,aes(yintercept=NMB,color=timestep,linetype=timestep)) + 
     scale_linetype_manual(name="",values=c("solid","dashed","dotdash")) + 
+<<<<<<< HEAD
     scale_color_manual(name="",values = c("black","darkgreen","purple")) + 
     scale_size_manual(name="",values = c(0.25,0.25,2)) +
     xlab("Number of Simulated Patients\n(log10)") + 
@@ -92,11 +94,20 @@ ggplot(data= micro %>% filter(N>1e3), aes(x=logN,y=NMB,color=timestep,fill=times
     scale_x_discrete(breaks = 2:11, labels = c("2\n100","3\n1k","4\n10k","5\n100k","6\n1mil","7\n10mil","8\n100mil","9\n1bil","10\n10bil","11\n100bil")) + 
     ylim(c(-1100,1100))
 p
+=======
+    scale_color_manual(name="",values = c("black","darkgreen","green")) + 
+    scale_size_manual(name="",values = c(0.5,0.5,0.8)) +
+    xlab("Number of Simulated Patients\n(log)") + 
+    theme_bw() +
+    theme(panel.grid.minor.y=element_blank())
+dev.off()
+>>>>>>> 6fddfa946fb04ebb5b5476b85f852596057c4cb7
 
 #### runtime ####
 load("~/Box Sync/microsim_runs/run_time_1e7/run_t_deq.rda")
 load("~/Box Sync/microsim_runs/run_time_1e7/run_t_des.rda")
 load("~/Box Sync/microsim_runs/run_time_1e7/run_t_mark_y.rda")
+load("~/Box Sync/microsim_runs/run_time_1e7/run_t_mark_m.rda")
 load("~/Box Sync/microsim_runs/run_time_1e7/run_t_mark_d.rda")
 load("~/Box Sync/microsim_runs/run_time_1e7/run_t_mark_m.rda")
 load("~/Box Sync/microsim_runs/run_time_1e7/run_t_mark_corr_y.rda")
@@ -105,6 +116,7 @@ load("~/Box Sync/microsim_runs/run_time_1e7/run_t_micro_y.rda")
 load("~/Box Sync/microsim_runs/run_time_1e7/run_t_micro_corr_yr_nov.rda")
 
 rt <- b_deq %>% mutate(model="DEQ") %>% 
+<<<<<<< HEAD
     bind_rows(b_des %>% mutate(model="DES (10mil)")) %>% 
     bind_rows(b_mark_y %>% mutate(model="MARKOV-Y")) %>% 
     bind_rows(b_mark_m %>% mutate(model="MARKOV-M")) %>% 
@@ -126,5 +138,24 @@ ggplot(rt) +
     scale_y_continuous(breaks = 10^seq(-3,4,0.5), 
                        labels = value_labs, trans="log10") + ylab("log10(seconds)") + xlab("Method") +
     coord_flip() + theme_bw()  + xlab("")
+=======
+    bind_rows(b_des %>% mutate(model="DES")) %>% 
+    bind_rows(b_mark_y %>% mutate(model="Markov Yearly")) %>% 
+    bind_rows(b_mark_m %>% mutate(model="Markov Monthly")) %>% 
+    bind_rows(b_mark_d %>% mutate(model="Markov Daily")) %>% 
+    bind_rows(b_mark_corr_y %>% mutate(model="Markov Yearly Corrected")) %>%
+    bind_rows(b_mark_corr_m %>% mutate(model="Markov Yearly Corrected")) %>%
+    bind_rows(b_micro_y %>% mutate(model="Microsim Yearly")) %>% 
+    bind_rows(b_micro_corr_y %>% mutate(model="Microsim Yearly Corrected")) %>% 
+    mutate(times=time/10^9)
+    
+tiff("Runtime Comparison.tiff",res=300,units="in",width=6, height=5)
+ggplot(rt) +
+    geom_boxplot(aes(x=model,y=times),outlier.shape = 1,outlier.alpha = 0.5) +
+    scale_y_continuous(breaks = 10^seq(-3,4,0.5), labels = seq(-3,4,0.5), trans="log10") + ylab("log10(seconds)") + xlab("Method") +
+    coord_flip() + theme_bw() +
+    theme(panel.grid.major.y=element_blank())
+dev.off()
+>>>>>>> 6fddfa946fb04ebb5b5476b85f852596057c4cb7
 
 
