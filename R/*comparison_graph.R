@@ -34,6 +34,7 @@ icer_micro_corr_y <- read_rds("~/Box Sync/microsim_runs/convergence/icer_micro_c
     bind_rows(read_rds("~/Box Sync/microsim_runs/convergence/icer_micro_corr_y_e9_10_nov.rds")) %>% 
     bind_rows(read_rds("~/Box Sync/microsim_runs/convergence/icer_micro_corr_y_e10_11_nov.rds"))
 
+icer_micro_corr_m <- read_rds("~/Box Sync/microsim_runs/convergence/icer_micro_corr_m_e6_11.rds")
 
 #### p1 ####
 lines <- data.frame(model=c("DEQ","MARKOV","MARKOV-EMB"),
@@ -42,7 +43,8 @@ lines <- data.frame(model=c("DEQ","MARKOV","MARKOV-EMB"),
 dots <-   icer_des %>% mutate(model="DES") %>% 
     bind_rows(icer_micro_y %>% mutate(model="Microsim Yearly")) %>% 
     bind_rows(icer_micro_d %>% mutate(model="Microsim Daily")) %>% 
-    bind_rows(icer_micro_corr_y %>% mutate(model="Microsim Yearly Corrected")) %>% 
+    bind_rows(icer_micro_corr_y %>% mutate(model="Microsim Yearly Corrected")) %>%
+    bind_rows(icer_micro_corr_m %>% mutate(model="Microsim Monthly Corrected")) %>% 
     group_by(model,N) %>% slice(1) %>% summarise(NMB=mean(NMB))
 
 
@@ -67,6 +69,7 @@ ggplot() +
 icer_micro_d$timestep <- "MICROSIM-D"
 icer_micro_y$timestep <- "MICROSIM-Y"
 icer_micro_corr_y$timestep <- "MICROSIM-EMB-Y"
+icer_micro_corr_m$timestep <- "MICROSIM-EMB-M"
 icer_des$timestep <- "DES"
 
 micro <- rbind(icer_micro_d, icer_micro_y,icer_micro_corr_y)
@@ -74,6 +77,9 @@ micro <- rbind(micro, icer_des[,c("NMB", "N", "seed", "iteration", "timestep")])
 micro$logN <- factor(round(log(micro$N,base = 10)))
 
 ll <- lines %>% mutate(timestep=model)
+micro$timestep <- factor(micro$timestep, 
+                         levels = c('DES', 'MICROSIM-Y','MICROSIM-D','MICROSIM-EMB-Y','MICROSIM-EMB-M'))
+
 
 tiff("Micro Simulation Convergence.tiff",res=300,units="in",width=6.5, height=5)
 # Micro Simulation Convergence
@@ -81,8 +87,8 @@ library(directlabels)
 p <- 
 ggplot(data= micro %>% filter(N>1e3), aes(x=logN,y=NMB,color=timestep,fill=timestep),alpha=0.7) +
     geom_boxplot(outlier.shape = NA) +
-    scale_color_manual(name="",values = c("grey40","orange2","red3","blue")) +
-    scale_fill_manual(name="",values = c("grey80","gold1","tomato","skyblue")) +
+    scale_color_manual(name="",values = c("grey40","red3","orange2","blue","skyblue")) +
+    scale_fill_manual(name="",values = c("grey80","tomato","gold1","dodgerblue","paleturquoise1")) +
     new_scale_color() +
     geom_hline(data=ll,aes(yintercept=NMB,color=timestep,linetype=timestep)) + 
     scale_linetype_manual(name="",values=c("solid","dashed","dotdash")) + 
@@ -102,6 +108,33 @@ p
     theme(panel.grid.minor.y=element_blank())
 dev.off()
 >>>>>>> 6fddfa946fb04ebb5b5476b85f852596057c4cb7
+
+
+#truncation convergence
+icer_des_trunc <- read_rds("~/Box Sync/microsim_runs/convergence/icer_des_trunc_e2_8.rds")
+icer_des_trunc$timestep <- "DES truncated"
+icer_des$timestep <- "DES"
+
+trunc <- bind_rows(icer_des,icer_des_trunc)
+trunc$logN <- factor(round(log10(trunc$N)))
+
+tiff("DES Truncation Simulation Convergence.tiff",res=300,units="in",width=7, height=5)
+ggplot(trunc, aes(x=logN,y=NMB,color=timestep,fill=timestep),alpha=0.7) +
+    geom_boxplot(coef=1e30,size=0.2) +
+    scale_color_manual(name="",values = c("blue","red3")) +
+    scale_fill_manual(name="",values = c("lightskyblue","pink")) +
+    new_scale_color() +
+    geom_hline(data=ll[ll$model=="DEQ",],aes(yintercept=NMB,color=timestep,linetype=timestep),size=0.2) + 
+    scale_linetype_manual(name="",values=c("solid")) + 
+    scale_color_manual(name="",values = c("black")) + 
+    xlab("Number of Simulated Patients\n(log10)") + 
+    theme_bw() +
+    scale_x_discrete(breaks = 2:8, labels = c("2\n100","3\n1k","4\n10k","5\n100k","6\n1mil","7\n10mil","8\n100mil")) + 
+    theme(panel.grid=element_blank())
+
+dev.off()
+
+
 
 #### runtime ####
 load("~/Box Sync/microsim_runs/run_time_1e7/run_t_deq.rda")
