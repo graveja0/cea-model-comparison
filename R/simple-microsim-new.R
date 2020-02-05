@@ -205,7 +205,7 @@ microsim_run <- function(params, N = NULL, method="beginning")
         ee            <- numeric(3)
         c.test        <- numeric(3)
         c.drug        <- numeric(3)
-        d.r  <- inst_rate(1-1/(1 + disc), 1)
+        d.r  <- inst_rate(1-1/(1 + disc), interval)
         
         for(i in 1:3)
         {
