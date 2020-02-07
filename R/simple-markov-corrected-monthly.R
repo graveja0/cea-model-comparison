@@ -11,10 +11,10 @@ markov_corr_tp <- function(params, v.n, t)
     
     #### 2. Inputs ####
     #secular death risk -- All same as original Markov computation
-    r.death   <- inst_rate(gompertz_ratio2(t, interval, shape, rate), 1)
+    r.death   <- inst_rate(gompertz_ratio2(t, 12, shape, rate), 1)
     rr        <- ifelse(p_g==1 & p_o==1, rr_b, 1)
-    r_a <- r_a/interval # Rates are in terms of interval units
-    r_b <- r_b/interval # Rates are in terms of interval units
+    r_a <- r_a/12 # Rates are in terms of interval units
+    r_b <- r_b/12 # Rates are in terms of interval units
 
     # Always start on zeros, continuous transition rates, i.e. tr
     tr <-  matrix(0, nrow = length(v.n), ncol = length(v.n), dimnames = list(v.n, v.n))
@@ -47,13 +47,17 @@ markov_corr_tp <- function(params, v.n, t)
     tr["H", "CUM_T"]   <- p_o*tr["H", "A"]    # Accumulator for testing is non-Markovian
     
     # Tunnel accumulator for A
-    tr["H", "TUN"]     <- tr["H", "A"]
-    # TUN Now duplicates transitions in from H, just like A
-    # PTUN is a "waste" bucket necessary for bookkeeping
-    # Transitions into PTUN keep track of things that exited tunnel state
-    # for reasons other than expiration of the tunnel, i.e. external risks
-    tr["TUN", "PTUN"]  <- tr["A", "BD"] + tr["A", "D"]
-    tr["TUN", "TUN"]   <- -sum(tr["A", c("BD", "D")]) # semi-Markovian
+    tr["H", "TUN1"]  <- tr["H", "A"]
+    for(i in paste0("TUN", 1:12))
+    {
+      # TUN Now duplicates transitions in from H, just like A
+      # PTUN is a "waste" bucket necessary for bookkeeping
+      # Transitions into PTUN keep track of things that exited tunnel state
+      # for reasons other than expiration of the tunnel, i.e. external risks
+      tr[i, "PTUN"]  <- tr["A", "BD"] + tr["A", "D"] # PTUN is just used as an outbound bucket
+
+      tr[i, i]       <- -sum(tr[i, c("BD", "D")]) # semi-Markovian
+    }
     
     ###########################################
     ## Embed into unit (interval) timestep the matrix
@@ -67,10 +71,17 @@ markov_corr_tp <- function(params, v.n, t)
     x["H", "CUM_BS"]    <- x["H", "BSD"]+x["H", "BS"]
 
     # Leave tunnel state on yearly cycle (zero is null transfer back)
-    x["TUN", "TUN"]    <- 0 # This patches the semi-Markovian 
-    # PROBLEM: This doesn't work if interval is not yearly
-    # E.G. one needs a TUN1 through TUN12 for monthly, etc to work on other intervals
-    
+    previous <- NULL
+    for(i in paste0("TUN", 1:12))
+    {
+      if(!is.null(previous))
+        x[previous, i] <- 1 - sum(x[previous, "PTUN"])
+      x[i, i]    <- 0 # This patches the semi-Markovian 
+      previous <- i
+    }
+    x["TUN12", "PTUN"] <- 1
+    x["PTUN",  "PTUN"] <- 1
+
     # The alpha / beta was handled by the matrix exponent
 
     x
@@ -84,8 +95,8 @@ markov_corr_sim <- function(params)
   with(params, {
         
     #### 1. Model Setting ####
-    n.t       <- horizon*interval          # number of cycles
-    v.n       <- c("H", "A", "BS", "BD", "D", "BSD", "CUM_A", "CUM_BS", "CUM_T", "TUN", "PTUN")  # state names, and accumulators
+    n.t       <- horizon*12          # number of cycles
+    v.n       <- c("H", "A", "BS", "BD", "D", "BSD", "CUM_A", "CUM_BS", "CUM_T", paste0("TUN", 1:12), "PTUN")  # state names, and accumulators
     n.s       <- length(v.n)               # number of states
         
     # transition probability matrix list
@@ -122,7 +133,7 @@ markov_corr <- function(params, N=NULL, gene=0, test=0, method="beginning")
 
     n.t <- dim(m.M)[1]
     #### 5. Computation ####
-    d.r  <- inst_rate(1-1/(1 + params$disc), interval)
+    d.r  <- inst_rate(1-1/(1 + params$disc), 12)
     v.dw <- (exp(-d.r*(0:(n.t-2))) - exp(-d.r*(1:(n.t-1))))/d.r
     
     # adjust counts using integration methods
@@ -130,12 +141,12 @@ markov_corr <- function(params, N=NULL, gene=0, test=0, method="beginning")
     dmm       <- integrator(diag(exp( 0:(n.t-1) * -d.r)) %*% m.M, method=method) # Discounted counts
     
     # conditional drug costs
-    dd        <- ifelse(gene==1 & test==1, c_alt*365/interval, c_tx*365/interval)
+    dd        <- ifelse(gene==1 & test==1, c_alt*365/12, c_tx*365/12)
     tt        <- ifelse(test==1, c_t,0)
 
     living    <- sum(m.M[n.t, c("H", "A", "BS")])         # Proportion alive at end of sim
     fatal_b   <- sum(m.M[n.t, c("BD")])
-    possible  <- sum(dmm[,c("H", "A", "BS")]) / interval  # Sum of possible dQALY
+    possible  <- sum(dmm[,c("H", "A", "BS")]) / 12  # Sum of possible dQALY
 
     # Discounted Costs    
     c.test    <- tt   * sum(disc_acc(m.M, "CUM_T", v.dw, method)) 
@@ -145,8 +156,8 @@ markov_corr <- function(params, N=NULL, gene=0, test=0, method="beginning")
                  c_bd * disc_acc(m.M, "BD",     v.dw, method)
 
     
-    disutil_a <- d_a*sum(dmm[,"TUN"]) / interval
-    disutil_b <- d_b*sum(dmm[,c("BS")]) / interval 
+    disutil_a <- d_a*sum(dmm[,paste0("TUN",1:12)]) / 12
+    disutil_b <- d_b*sum(dmm[,c("BS")]) / 12 
 
     list(
       m.M     = m.M,
