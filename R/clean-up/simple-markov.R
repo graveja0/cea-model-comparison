@@ -1,5 +1,7 @@
-library(here)
-source(here("R/common.R"))
+# Load the following packages and scripts to run this model independently
+# library(here)
+# source(here("R/common.R")) #load shared functions
+# source(here("R/simple-params.R")) #load inputs
 
 #### 02 Functions ####
 gompertz_ratio2 <- function(t, interval, shape, rate) # p.sd for each step
@@ -167,7 +169,7 @@ markov0 <- function(params, N=NULL, gene=0, test=0, method="beginning")
 }
 
 # Combined model
-markov_comb <- function(params, method="life-table")
+markov_icer <- function(params, method="life-table")
 {
   ref1        <- markov0(params, gene=0, test=0, method=method)
   test1       <- markov0(params, gene=1, test=1, method=method)
@@ -189,3 +191,5 @@ markov_comb <- function(params, method="life-table")
     dQALY.test = unname(dQALY.test)
   )
 }
+
+# markov_icer(params) #sample code to run the model

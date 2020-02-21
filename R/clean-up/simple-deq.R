@@ -1,7 +1,8 @@
-
-library(here)
-library(deSolve)
-source(here("R/common.R"))
+# Load the following packages and scripts to run this model independently
+# library(here)
+# library(deSolve)
+# source(here("R/common.R")) #load shared functions
+# source(here("R/simple-params.R")) #load inputs
 
 ###################################
 # Numerical Delay Differential Equation
@@ -123,3 +124,5 @@ deq_icer <- function(params, reference=NULL, genotype=NULL)
      dQALY.test = unname(genotype['dQALY'])
   )
 }
+
+# deq_icer(params) #sample code to run the model

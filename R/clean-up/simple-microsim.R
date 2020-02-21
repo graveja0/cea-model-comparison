@@ -1,14 +1,12 @@
-
-#library(magrittr)
-#library(dplyr)
-#library(stringr)
-#library(tidyr)
+# Load the following packages and scripts to run this model independently
+# library(dplyr)
+# library(tidyr)
+# library(purrr)
+# library(here)
+# source(here("R/common.R")) #load shared functions
+# source(here("R/simple-params.R")) #load inputs
 
 #### 01 inputs ####
-#source("./R/simple-params.R")
-library(here)
-source(here("R/common.R"))
-
 #### 02 Sim Functions ####
 #---------------------------------------------------------------------------#
 #### R function to sample states for multiple individuals simultaneously ####
@@ -279,4 +277,4 @@ microsim_icer <- function(params, reference=NULL, genotype=NULL, seed=NULL, meth
     )
 }
 
-
+# microsim_icer(params,N=1000) #sample code to run the model

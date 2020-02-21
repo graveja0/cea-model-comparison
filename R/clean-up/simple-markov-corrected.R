@@ -1,7 +1,8 @@
-
-library(here)
-library(Matrix)
-source(here("R/common.R"))
+# Load the following packages and scripts to run this model independently
+# library(here)
+# library(Matrix)
+# source(here("R/common.R"))
+# source(here("R/simple-params.R"))
 
 markov_corr_tp <- function(params, v.n, t)
 {
@@ -170,7 +171,7 @@ markov_corr <- function(params, N=NULL, gene=0, test=0, method="beginning")
 }
 
 # Combined model
-markov_comb_corr <- function(params, method="life-table")
+markov_corr_icer <- function(params, method="life-table")
 {
   ref1        <- markov_corr(params, gene=0, test=0, method=method)
   test1       <- markov_corr(params, gene=1, test=1, method=method)
@@ -193,4 +194,4 @@ markov_comb_corr <- function(params, method="life-table")
   )
 }
 
-
+# markov_corr_icer(params) #sample code to run the model

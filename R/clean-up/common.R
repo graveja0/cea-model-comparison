@@ -1,4 +1,4 @@
-
+# Functions shared in different models
 library(flexsurv)
 
 inst_rate <- function(percent, timeframe) -log(1-percent) / timeframe

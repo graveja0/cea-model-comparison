@@ -1,5 +1,7 @@
-library(here)
-source(here("R/common.R"))
+# Load the following packages and scripts to run this model independently
+# library(here)
+# source(here("R/common.R")) #load shared functions
+# source(here("R/simple-params.R")) #load inputs
 
 # Perform all random draws in the manner of Discrete Event Simulation
 # This can be done without larger frameworks due to simplicity of model
@@ -124,3 +126,5 @@ tdes_icer <- function(params, reference=NULL, genotype=NULL, N = NULL, seed=123)
      dQALY.test = unname(genotype['dQALY'])
   )
 }
+
+# tdes_icer(params,N=1000) #sample code to run the model

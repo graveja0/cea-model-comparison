@@ -1,6 +1,3 @@
-library(here)
-source(here("R/common.R"))
-
 ##############################################################
 ##
 ## Standardized Parameter List for Simple Model Comparison

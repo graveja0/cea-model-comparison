@@ -1,13 +1,15 @@
+# Load the following packages and scripts to run this model independently
 # library(here)
-# library(magrittr)
 # library(dplyr)
-# library(stringr)
 # library(tidyr)
+# library(purrr)
+# library(Matrix)
 # source(here("R/common.R"))
 
 #### 01 inputs ####
 # source(here("R/simple-params.R"))
 # source(here("R/simple-markov-corrected.R"))
+
 #Option 1: get corrected transition matrices by running corrected markov
 markov_corr_get <- function(params, gene=0, test=0)
 {
@@ -318,7 +320,7 @@ microsim_run_corr <- function(params, N = NULL, method="beginning")
 }
 
 
-microsim_icer_corr <- function(params, reference=NULL, genotype=NULL, method="life-table",seed=NULL,...)
+microsim_corr_icer <- function(params, reference=NULL, genotype=NULL, method="life-table",seed=NULL,...)
 {
     if(!is.null(seed)) set.seed(seed)
     
@@ -342,3 +344,4 @@ microsim_icer_corr <- function(params, reference=NULL, genotype=NULL, method="li
     )
 }
 
+# microsim_corr_icer(params,N=1000) #sample code to run the model
