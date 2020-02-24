@@ -18,6 +18,8 @@ gompertz_ratio <- function(t0, t1, shape, rate)
 }
 
 # Secular death from t-1 to t (scaled by interval)
+# A modified version of the gompertz_ratio function to return probability of secular death in each time cycle accommodating different cycle lengths.   
+# Default interval value 1 means 1-year cycle length, 12 means monthly, 365 means daily. 
 gompertz_ratio2 <- function(t, interval, shape, rate) # p.sd for each step
 {
   t1 <- t/interval
@@ -33,6 +35,7 @@ gompertz_ratio2 <- function(t, interval, shape, rate) # p.sd for each step
 
 
 # from heemod pkg code
+# Filipović-Pierucci A, Zarca K, Durand-Zaleski I (2017). “Markov Models for Health Economic Evaluation: The R Package heemod.” ArXiv e-prints. R package version 0.11.0, 1702.03252.
 rate_to_prob <- function(r, to=1, per=1)
 {
   1 - exp(-(r/per) * to)

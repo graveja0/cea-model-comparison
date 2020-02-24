@@ -49,7 +49,8 @@ params <- list(
   # Controls for model execution
   n          = 1e6,      # DES simulations to perform
   resolution = 7/365,        # Diff Eq Time step for DEQ approach
-  interval   = 1,            # Markov Interval
+  interval   = 1,            # How many cycles the default 1-year cycle length need to be divided into.
+                             # Default value 1 means 1-year cycle length, 12 means monthly, 365 means daily. 
   horizon    = 40,           # Time horizon of simulation
   wtp        = 100000,       # Willingness to pay threshold
   
