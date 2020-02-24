@@ -83,33 +83,25 @@ markov0 <- function(params, N=NULL, gene=0, test=0, method="beginning")
     }
     
     #### 5. Computation ####
-    d.r   <- (1 + disc)^(1/interval)-1 # annual discount rate adjusted to cycle length 
-    v.dwc <- 1 / (1 + d.r) ^ (0:(n.t-1)) # calculate discount weights for costs for each cycle based on discount rate d.r
-    v.dwe <- 1 / (1 + d.r) ^ (0:(n.t-1))
+    d.r  <- inst_rate(1-1/(1 + disc), interval) # annual discount rate adjusted to cycle length and converted to instaneous rate
     
-    #adjust counts based on integration method
+    #adjust counts based on integration method (need to dicount before this step if applicable)
     mm        <- integrator(m.M, method=method)
+    dmm       <- integrator(diag(exp( 0:n.t * -d.r)) %*% m.M, method=method)
     dd        <- ifelse(gene==1 & test==1, c_alt*365/interval,c_tx*365/interval) #drug cost conditional on testing decision/gene 
     tt        <- ifelse(test==1, c_t,0) #testing cost conditional on testing decision
     
-    cc        <- mm %*% c(0,c_a+dd+tt,rep(dd,d_at*interval),c_bs+dd,dd,c_bd,0,0) #total cost by cycle
-    ee        <- mm %*% c(1/interval,rep((1-d_a)/interval,d_at*interval),1/interval,(1-d_b)/interval,(1-d_b)/interval,0,0,0) #total QALY by cycle
-    cc        <- as.vector(cc) * v.dwc #discounted cost
-    ee        <- as.vector(ee) * v.dwe #discounted QALY
-    c.test    <- mm[,"A1"]*tt*v.dwc #discounted testing cost
-    c.drug    <- mm %*% c(0,dd,rep(dd,d_at*interval),dd,dd,0,0,0)
-    c.drug    <- as.vector(c.drug) * v.dwc #discounted drug cost
+    cc        <- as.vector(dmm %*% c(0,c_a+dd+tt,rep(dd,d_at*interval),c_bs+dd,dd,c_bd,0,0)) #discounted cost by cycle
+    ee        <- as.vector(dmm%*% c(1/interval,rep((1-d_a)/interval,d_at*interval),1/interval,(1-d_b)/interval,(1-d_b)/interval,0,0,0)) #discounted QALY by cycle
+    c.test    <- as.vector(dmm[,"A1"]*tt) #discounted testing cost
+    c.drug    <- as.vector(dmm %*% c(0,dd,rep(dd,d_at*interval),dd,dd,0,0,0)) #discounted drug cost
     
-    possible  <- mm %*% c(1,rep(1,d_at*interval+1),1,1,0,0,0) 
-    possible  <- as.vector(possible) * v.dwe #discounted LY
-    fatal_b   <- sum(mm[n.t,c("BD1","BD2")]) 
-    living    <- 1 - sum(mm[n.t,c("BD1","BD2","D")]) #LY
-    disutil_a <- mm %*% c(0,rep(d_a,d_at*interval),0,0,0,0,0,0)
-    disutil_a <- as.vector(disutil_a) * v.dwe #discounted disutility from A
-    disutil_b <- mm %*% c(0,rep(0,d_at*interval+1),d_b,d_b,0,0,0) 
-    disutil_b <- as.vector(disutil_b) * v.dwe #discounted disutility from B
-    c.treat   <- mm %*% c(0,c_a,rep(0,d_at*interval),c_bs,0,c_bd,0,0)
-    c.treat   <-  as.vector(c.treat) * v.dwc #discounted adverse event costs
+    possible  <- as.vector(dmm %*% c(1,rep(1,d_at*interval+1),1,1,0,0,0))/interval #discounted LY
+    fatal_b   <- sum(mm[n.t,c("BD1","BD2")]) #fatal B count
+    living    <- 1 - sum(mm[n.t,c("BD1","BD2","D")])/interval #LY (non-discounted)
+    disutil_a <- as.vector(dmm %*% c(0,rep(d_a,d_at*interval),0,0,0,0,0,0))/interval #discounted disutility from A
+    disutil_b <- as.vector(dmm %*% c(0,rep(0,d_at*interval+1),d_b,d_b,0,0,0))/interval #discounted disutility from B
+    c.treat   <- as.vector(dmm %*% c(0,c_a,rep(0,d_at*interval),c_bs,0,c_bd,0,0)) #discounted adverse event costs
     
     list(
       # m.M     = m.M,
