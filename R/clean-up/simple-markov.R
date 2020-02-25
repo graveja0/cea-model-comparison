@@ -1,14 +1,15 @@
+# This code built on a model example developed by the Decision Analysis in R for Technologies in Health (DARTH) workgroup
+# Citations:
+# - Jalal H, Pechlivanoglou P, Krijkamp E, Alarid-Escudero F, Enns E, Hunink MG. 
+# An Overview of R in Health Decision Sciences. Med Decis Making. 2017; 37(3): 735-746. 
+# - Krijkamp EM, Alarid-Escudero F, Enns EA, Jalal HJ, Hunink MGM, Pechlivanoglou P. 
+# Microsimulation modeling for health decision sciences using R: A tutorial. 
+# Med Decis Making. 2018;38(3):400–22. 
+
 # Load the following packages and scripts to run this model independently
-library(here)
-source(here("R/common.R")) #load shared functions
-source(here("R/simple-params.R")) #load inputs
-
-#### Model-Specific Functions ####
-# Once secular death mortablity reaches 1, all other probs need to put 0, no effect for default 40-year time horizon
-# NOTE: This is used a lot in cost effectiveness research and is the result
-# of failing to treat it as competing risks when embedding a continuous rate into a probability
-cap_max <- function(value, sd) ifelse(value+sd>1, 1-sd, value)
-
+# library(here)
+# source(here("common.R")) #load shared functions
+# source(here("simple-params.R")) #load inputs
 
 #### Main Simulation ####
 # Unweighted model
@@ -32,8 +33,7 @@ markov0 <- function(params, N=NULL, gene=0, test=0, method="beginning")
     pBS       <- rr*pB*(1-p_bd)
     pBD       <- rr*pB*p_bd
     
-    #### 3. Matrices ####
-    # Markov trace
+    #### 3. Markov Trace ####
     m.M <- matrix(0, 
                   nrow = n.t + 1 ,       
                   ncol = n.s,                  
@@ -44,7 +44,7 @@ markov0 <- function(params, N=NULL, gene=0, test=0, method="beginning")
     m.M[1,] <- c(1, rep(0, n.s-1))
     ####
     
-    # transition probability matrix
+    #### 3. Transition Probability Matrices #### 
     tp <-  matrix(0,nrow = n.s, ncol = n.s, dimnames = list(v.n, v.n))
     
     # fill transition probability matrix for each cycle to avoid storing all matrices in one giant object
@@ -82,30 +82,36 @@ markov0 <- function(params, N=NULL, gene=0, test=0, method="beginning")
       m.M[t+1, ] <- m.M[t, ] %*% l.P.tmp # estimate the Markov trace for cycle t + 1 using the t-th transition probability matrix
     }
     
-    #### 5. Computation ####
+    #### 5. Discounting & Summation ####
     d.r  <- inst_rate(1-1/(1 + disc), interval) # annual discount rate adjusted to cycle length and converted to instaneous rate
     
     #adjust counts based on integration method (need to dicount before this step if applicable)
     mm        <- integrator(m.M, method=method)
     dmm       <- integrator(diag(exp( 0:n.t * -d.r)) %*% m.M, method=method)
-    dd        <- ifelse(gene==1 & test==1, c_alt*365/interval,c_tx*365/interval) #drug cost conditional on testing decision/gene 
-    tt        <- ifelse(test==1, c_t,0) #testing cost conditional on testing decision
     
-    cc        <- as.vector(dmm %*% c(0,c_a+dd+tt,rep(dd,d_at*interval),c_bs+dd,dd,c_bd,0,0)) #discounted cost by cycle
-    ee        <- as.vector(dmm%*% c(1/interval,rep((1-d_a)/interval,d_at*interval),1/interval,(1-d_b)/interval,(1-d_b)/interval,0,0,0)) #discounted QALY by cycle
+    # drug/testing costs conditional on gene/testing decision
+    dd        <- ifelse(gene==1 & test==1, c_alt*365/interval,c_tx*365/interval) #conditional drug cost
+    tt        <- ifelse(test==1, c_t,0) #conditional testing cost
+    
+    # discounted cost
+    cc        <- as.vector(dmm %*% c(0,c_a+dd+tt,rep(dd,d_at*interval),c_bs+dd,dd,c_bd,0,0)) #discounted total cost by cycle
     c.test    <- as.vector(dmm[,"A1"]*tt) #discounted testing cost
     c.drug    <- as.vector(dmm %*% c(0,dd,rep(dd,d_at*interval),dd,dd,0,0,0)) #discounted drug cost
+    c.treat   <- as.vector(dmm %*% c(0,c_a,rep(0,d_at*interval),c_bs,0,c_bd,0,0)) #discounted adverse event costs
     
-    possible  <- as.vector(dmm %*% c(1,rep(1,d_at*interval+1),1,1,0,0,0))/interval #discounted LY
-    fatal_b   <- sum(mm[n.t,c("BD1","BD2")]) #fatal B count
-    living    <- 1 - sum(mm[n.t,c("BD1","BD2","D")])/interval #LY (non-discounted)
+    # discounted effectiveness
+    ee        <- as.vector(dmm%*% c(1/interval,rep((1-d_a)/interval,d_at*interval),1/interval,(1-d_b)/interval,(1-d_b)/interval,0,0,0)) #discounted QALYs by cycle
+    possible  <- as.vector(dmm %*% c(1,rep(1,d_at*interval+1),1,1,0,0,0))/interval #discounted life years 
     disutil_a <- as.vector(dmm %*% c(0,rep(d_a,d_at*interval),0,0,0,0,0,0))/interval #discounted disutility from A
     disutil_b <- as.vector(dmm %*% c(0,rep(0,d_at*interval+1),d_b,d_b,0,0,0))/interval #discounted disutility from B
-    c.treat   <- as.vector(dmm %*% c(0,c_a,rep(0,d_at*interval),c_bs,0,c_bd,0,0)) #discounted adverse event costs
+    
+    # other metrics
+    living    <- 1 - sum(mm[n.t,c("BD1","BD2","D")])/interval #proportion alive at end of sim
+    fatal_b   <- sum(mm[n.t,c("BD1","BD2")]) #fatal B count
     
     list(
       # m.M     = m.M,
-      # mm      = mm,
+      mm      = mm,
       results = c(dCOST       = sum(unlist(cc)),
                   dQALY       = sum(unlist(ee)),
                   possible    = sum(unlist(possible)),

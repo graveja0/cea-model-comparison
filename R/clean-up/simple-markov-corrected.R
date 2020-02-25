@@ -1,16 +1,16 @@
 # Load the following packages and scripts to run this model independently
 # library(here)
 # library(Matrix)
-# source(here("R/common.R"))
-# source(here("R/simple-params.R"))
+# source(here("common.R"))
+# source(here("simple-params.R"))
 
+#### Embed Transition Probability Matrices ####
 markov_corr_tp <- function(params, v.n, t)
 {
   # To Debug
   # sapply(names(params), function(n) assign(n, params[[n]], envir=baseenv()))
   with(params, {
     
-    #### 2. Inputs ####
     #secular death risk -- All same as original Markov computation
     r.death   <- inst_rate(gompertz_ratio2(t, interval, shape, rate), 1)
     rr        <- ifelse(p_g==1 & p_o==1, rr_b, 1)
@@ -77,7 +77,9 @@ markov_corr_tp <- function(params, v.n, t)
     x
   })
 }
-  
+
+#### Main Simulation ####
+# Unweighted model: Markov trace  
 markov_corr_sim <- function(params)
 {
   # To Debug
@@ -89,10 +91,10 @@ markov_corr_sim <- function(params)
     v.n       <- c("H", "A", "BS", "BD", "D", "BSD", "CUM_A", "CUM_BS", "CUM_T", "TUN", "PTUN")  # state names, and accumulators
     n.s       <- length(v.n)               # number of states
         
-    # transition probability matrix list
+    #### 2. List of Transition Probability Matrices #### 
     l.P <- lapply(1:n.t, function(x) markov_corr_tp(params, v.n, x))
         
-    #### 4. Run Probabilistic Matrix ####
+    #### 3. Initiate Markov Trace ####
     m.M <- matrix(0, 
                   nrow = n.t + 1 ,                # create Markov trace (n.t + 1 because R doesn't understand  Cycle 0)
                   ncol = n.s,                  
@@ -100,14 +102,14 @@ markov_corr_sim <- function(params)
 
     # The cohort starts from state 1, aka 'Healthy'
     m.M[1,] <- c(1, rep(0, n.s-1))      # initialize first cycle of Markov trace accounting for the tunnels
+    #### 4. Run the Model ####
     for (t in 1:n.t) m.M[t+1, ] <- m.M[t, ] %*% l.P[[t]]
     
     m.M
   })
 }
 
-#### 03 Main Simulation
-# Unweighted model
+# Discounting & Summation
 markov_corr <- function(params, N=NULL, gene=0, test=0, method="beginning")
 {
   if (!is.null(N)) params$n <- N
@@ -123,6 +125,7 @@ markov_corr <- function(params, N=NULL, gene=0, test=0, method="beginning")
 
     n.t <- dim(m.M)[1]
     #### 5. Computation ####
+    # discount rate transformation
     d.r  <- inst_rate(1-1/(1 + params$disc), interval)
     v.dw <- (exp(-d.r*(0:(n.t-2))) - exp(-d.r*(1:(n.t-1))))/d.r
     
@@ -130,24 +133,25 @@ markov_corr <- function(params, N=NULL, gene=0, test=0, method="beginning")
     mm        <- integrator(m.M,                method=method) # Total counts
     dmm       <- integrator(diag(exp( 0:(n.t-1) * -d.r)) %*% m.M, method=method) # Discounted counts
     
-    # conditional drug costs
-    dd        <- ifelse(gene==1 & test==1, c_alt*365/interval, c_tx*365/interval)
-    tt        <- ifelse(test==1, c_t,0)
-
+    # drug/testing costs conditional on gene/testing decision
+    dd        <- ifelse(gene==1 & test==1, c_alt*365/interval, c_tx*365/interval) #conditional drug cost
+    tt        <- ifelse(test==1, c_t,0) #conditional testing cost
+    
+    # Survival Metrics
     living    <- sum(m.M[n.t, c("H", "A", "BS")])         # Proportion alive at end of sim
     fatal_b   <- sum(m.M[n.t, c("BD")])
-    possible  <- sum(dmm[,c("H", "A", "BS")]) / interval  # Sum of possible dQALY
+    possible  <- sum(dmm[,c("H", "A", "BS")]) / interval  # Discounted Life Years
 
     # Discounted Costs    
-    c.test    <- tt   * sum(disc_acc(m.M, "CUM_T", v.dw, method)) 
-    c.drug    <- dd   * sum(dmm[,c("A", "BS")]) 
-    c.treat   <- c_a  * disc_acc(m.M, "CUM_A",  v.dw, method) +
+    c.test    <- tt   * sum(disc_acc(m.M, "CUM_T", v.dw, method))  #discounted testing cost
+    c.drug    <- dd   * sum(dmm[,c("A", "BS")]) #discounted drug cost
+    c.treat   <- c_a  * disc_acc(m.M, "CUM_A",  v.dw, method) + 
                  c_bs * disc_acc(m.M, "CUM_BS", v.dw, method) + 
-                 c_bd * disc_acc(m.M, "BD",     v.dw, method)
+                 c_bd * disc_acc(m.M, "BD",     v.dw, method) #discounted adverse event costs
 
-    
-    disutil_a <- d_a*sum(dmm[,"TUN"]) / interval
-    disutil_b <- d_b*sum(dmm[,c("BS")]) / interval 
+    # Discounted Disutilities
+    disutil_a <- d_a*sum(dmm[,"TUN"]) / interval #discounted disutility from A
+    disutil_b <- d_b*sum(dmm[,c("BS")]) / interval#discounted disutility from B
 
     list(
       m.M     = m.M,
@@ -171,6 +175,9 @@ markov_corr <- function(params, N=NULL, gene=0, test=0, method="beginning")
 }
 
 # Combined model
+# Under testing strategy, cost/QALY implications are different conditional on gene type/testing decision
+# 1.no testing because of physician not ordering test (p_o); 2. no-variant gets tested not prescribed alternative drug;
+# 3.variant-carrier gets tested and prescribed alternative drug;
 markov_corr_icer <- function(params, method="life-table")
 {
   ref1        <- markov_corr(params, gene=0, test=0, method=method)

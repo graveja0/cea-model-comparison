@@ -1,8 +1,8 @@
 # Load the following packages and scripts to run this model independently
 # library(here)
 # library(deSolve)
-# source(here("R/common.R")) #load shared functions
-# source(here("R/simple-params.R")) #load inputs
+# source(here("common.R")) #load shared functions
+# source(here("simple-params.R")) #load inputs
 
 ###################################
 # Numerical Delay Differential Equation

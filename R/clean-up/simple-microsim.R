@@ -1,41 +1,22 @@
+# This code built on a model example developed by the Decision Analysis in R for Technologies in Health (DARTH) workgroup
+# Citations:
+# - Jalal H, Pechlivanoglou P, Krijkamp E, Alarid-Escudero F, Enns E, Hunink MG. 
+# An Overview of R in Health Decision Sciences. Med Decis Making. 2017; 37(3): 735-746. 
+# - Krijkamp EM, Alarid-Escudero F, Enns EA, Jalal HJ, Hunink MGM, Pechlivanoglou P. 
+# Microsimulation modeling for health decision sciences using R: A tutorial. 
+# Med Decis Making. 2018;38(3):400–22. 
+
 # Load the following packages and scripts to run this model independently
 # library(dplyr)
 # library(tidyr)
 # library(purrr)
 # library(here)
-# source(here("R/common.R")) #load shared functions
-# source(here("R/simple-params.R")) #load inputs
+# source(here("common.R")) #load shared functions
+# source(here("simple-params.R")) #load inputs
 
-#### 01 inputs ####
-#### 02 Sim Functions ####
-#---------------------------------------------------------------------------#
-#### R function to sample states for multiple individuals simultaneously ####
-#---------------------------------------------------------------------------#
-samplev <- function (probs, m) {
-    d <- dim(probs)
-    n <- d[1]
-    k <- d[2]
-    lev <- dimnames(probs)[[2]]
-    if (!length(lev)) 
-        lev <- 1:k
-    ran <- matrix(lev[1], ncol = m, nrow = n)
-    U <- t(probs)
-    for(i in 2:k) {
-        U[i, ] <- U[i, ] + U[i - 1, ]
-    }
-    if (any((U[k, ] - 1) > 1e-05))
-        stop("error in multinom: probabilities do not sum to 1")
-    
-    for (j in 1:m) {
-        un <- rep(runif(n), rep(k, n))
-        ran[, j] <- lev[1 + colSums(un > U)]
-    }
-    ran
-}
-
-
-# Event draw function:
-# looks up probability of transition
+#### Model-Specific Functions ####
+# Transition Probability Functions:
+# feed in current Markov trace, time cycle, and other parameters to look up probability of transition from one state
 ProbsH <- function(M_t, t, p.a, p.sd, interval)
 {
     # M_t  :    current health state 
@@ -44,8 +25,9 @@ ProbsH <- function(M_t, t, p.a, p.sd, interval)
     p <- matrix(0,nrow=length(M_t),ncol=2,dimnames=list(c(),c("A1","D")))
     pp.a <- rate_to_prob(p.a,1/interval)
     
-    #cap probs to match markov version: is it appropriate????
-    #given time horizon of 40, no impact
+    # Once secular death mortablity reaches 1, all other probs need to put 0, no effect for default 40-year time horizon
+    # NOTE: This is used a lot in cost effectiveness research and is the result
+    # of failing to treat it as competing risks when embedding a continuous rate into a probability
     if(p.die.base+pp.a>1) {pp.a <- 1-p.die.base}
     
     p[,"A1"] <- pp.a
@@ -73,12 +55,10 @@ ProbsBS <- function(M_t,t,p.sd){
 }
 
 
-#draw event for competing risks
-draw.events <- function(current,p) {
+# Function to Draw Events for Competing Risks
+draw.events <- function(current,p) { #feed in current state and transition probabilities
     pp <- rbinom(n=length(current),size=1,prob=rowSums(p))
-    if(sum(pp)>0) { # if at least one person has a event
-        # randomly sample the event type for those who experience progression events this cycle
-        # uses samplev() from the "Functions Folder"
+    if(sum(pp)>0) { # if at least one person has a event then randomly sample the event type for those who experience any event
         event.type <- samplev(p[pp==1,,drop=FALSE]/rowSums(p[pp==1,,drop=FALSE]),m=1)   
         # update state based on event type
         current[pp==1] = event.type
@@ -87,6 +67,7 @@ draw.events <- function(current,p) {
 }
 
 
+#### Main Simulation ####
 microsim_run <- function(params, N = NULL, method="beginning")
 {
     if (!is.null(N)) params$n <- N
@@ -101,37 +82,33 @@ microsim_run <- function(params, N = NULL, method="beginning")
         v.n       <- c("H",paste0("A",1:(d_at*interval+1)),"BS1","BS2","BD1","BD2","D")    # state names
         n.s       <- length(v.n)                # number of states
         
-        #secular death risk
+        # secular death risk
         p.HD      <- gompertz_ratio2(1:n.t, interval, shape, rate)
         
         #### 2. Sample individual level characteristics ####
-        #Static characteristics
         df.Pop    <- data.frame(name    = 1:n.i,
                                 variant = sample(c(FALSE,TRUE), n.i, prob=c(1-p_g,p_g), replace = TRUE),
                                 tested  = FALSE,
                                 treat   = factor("",levels=c("","Alternate","Primary")))
-        
-        #Dynamic characteristics 
+        # "tested" and "treat" are dynamic attributes and will be updated along with the simulation
         v.M_Init <- rep("H", n.i)       # everyone begins in the healthy state 
         
-        #### 3. Start Simultation ####
-        # m.M: health state for each patient at each cycle
+        #### 3. Initiate Simulation ####
+        # m.M: state for each patient, only capturing the current cycle and the one following to avoid storing giant matrices
         m.M  <- matrix(nrow = n.i, ncol = 2, 
-                       dimnames = list(paste(1:n.i),     # could name the rows ind1, ind2, ind3, etc.
-                                       c("current","forward")))  # name the columns cycle0, cycle1, cycle2, cycle3, etc.
+                       dimnames = list(paste(1:n.i),     
+                                       c("current","forward"))) 
         
-        m.M[, 1] <- v.M_Init         # initial health state for all individuals 
+        m.M[, 1] <- v.M_Init         # initial state for all individuals 
         
-        zerocol <- as.data.frame(setNames(replicate(length(v.n),numeric(0), simplify = F),v.n))
-        zerocol[1,] <- 0
-        
+        # create a placeholder list to record state counts in each cycle
         ct <- vector("list",n.t)
-        
-        # Time for-loop from cycle 1 through n.t
+  
+        #### 4. Run Simultation ####
         for (t in 1:n.t)
         {
             ## Simulate Events ##
-            # Default Update: if no events occur, health state remains unchanged
+            # Default Update: if no events occur, current state is copied to the next cycle
             m.M[,2] = m.M[,1]
             
             # From H
@@ -178,39 +155,47 @@ microsim_run <- function(params, N = NULL, method="beginning")
             # From BD
             m.M[,2][m.M[,1] == "BD1"] <- "BD2"
             
-            #summarize counts at each cycle
+            # Depending on testing decision/treatment, individuals incur different costs/disutilities,
+            # therefore they are grouped into three tracks: 
+            # 1.not tested; 2. tested & on primary drug; 3. tested & on alternative drug.
             pop.none      <- df.Pop[df.Pop$tested==FALSE,                            'name']
             pop.test.prim <- df.Pop[df.Pop$tested==TRUE & df.Pop$treat=="Primary",   'name']
             pop.test.alt  <- df.Pop[df.Pop$treat=="Alternate" | is.na(df.Pop$treat), 'name']
             
+            # summarize counts by track for the next cycle
             ct[[t]] <- list(pop.none, pop.test.prim, pop.test.alt) %>% 
                 map(function(x) {
-                    if(length(x)==0) {return(zerocol)} else {
+                    if(length(x)==0) {
+                      return(as.data.frame(as.list(rep(0,length(v.n))),row.names = "1",col.names = v.n))
+                      } else {
                         m.M[x,"forward"] %>% as.data.frame() %>% set_names("state") %>%
                             mutate(state=factor(state,levels=v.n)) %>% 
                             table() %>% as.data.frame() %>% spread_(".","Freq")
                     }
                 })
             
-            ### reset matrix
+            # move one cycle forward to reset the matrix
             m.M[,1] <- m.M[,2]
             
         }        
         
+        # condense the counter list to get state counts for all cylces in each track
         mm <- map(1:3, function(x) map_df(1:n.t,~ct[[.x]][[x]]))
         
+        
+        ####5. Discounting & Summation ####
         cc            <- numeric(3)
         ee            <- numeric(3)
         c.test        <- numeric(3)
         c.drug        <- numeric(3)
         d.r  <- inst_rate(1-1/(1 + disc), interval)
         
-        for(i in 1:3)
+        for(i in 1:3) #depending on track, different drug/testing costs are accrued 
         {
             if(nrow(mm[[i]]) > 0)
             {
-                dd        <- (if(i==3) c_alt else c_tx)*365/interval
-                m0        <- rbind(c(sum(mm[[i]][1,]),rep(0,ncol(mm[[i]]))),mm[[i]]) %>% as.matrix() #add back t=0 row (initial states)
+                dd        <- (if(i==3) c_alt else c_tx)*365/interval #drug cost
+                m0        <- rbind(c(sum(mm[[i]][1,]),rep(0,ncol(mm[[i]]))),mm[[i]]) %>% as.matrix() #add back t=0 row to ensure all groups sum up to n.i in healthy state at t=0 cycle
                 m1        <- as.matrix(integrator(diag(exp( 0:n.t * -d.r)) %*% m0, method=method)) #first discount then integrate
                 cc[i]     <- sum(as.vector(m1 %*% c(0,if(i==1) c_a+dd else c_a+dd+c_t,rep(dd,d_at*interval),c_bs+dd,dd,c_bd,0,0)))
                 ee[i]     <- sum(as.vector(m1 %*% c(1/interval,rep((1-d_a)/interval,d_at*interval),1/interval,(1-d_b)/interval,(1-d_b)/interval,0,0,0)))
@@ -220,21 +205,22 @@ microsim_run <- function(params, N = NULL, method="beginning")
         }
         
         tout  <- map(mm, function(x) mutate(x,cycle=as.integer(row.names(x)))) %>% do.call("bind_rows",.) %>% 
-            group_by(cycle) %>% summarise_all(sum) %>% select(-cycle)
-        mmm <- rbind(c(sum(tout[1,]),rep(0,ncol(tout[1,])-1)),tout) %>% as.matrix()
-        mmm2 <- integrator(mmm,method = method)
-        dmm <- integrator(diag(exp( 0:n.t * -d.r)) %*% mmm, method=method)
-            
-        possible  <- as.vector(dmm %*% c(1,rep(1,d_at*interval+1),1,1,0,0,0))/interval
-        fatal_b   <- sum(mmm2[n.t,c("BD1","BD2")])
-        living    <- n.i - sum(mmm2[n.t,c("BD1","BD2","D")])
-        disutil_a <- as.vector(dmm  %*% c(0,rep(d_a,d_at*interval),0,0,0,0,0,0))/ interval
-        disutil_b <- as.vector(dmm  %*% c(0,rep(0,d_at*interval+1),d_b,d_b,0,0,0))/ interval
-        c.treat   <- as.vector(dmm  %*% c(0,c_a,rep(0,d_at*interval),c_bs,0,c_bd,0,0))
+            group_by(cycle) %>% summarise_all(sum) %>% select(-cycle) #combine counts from all three tracks
+        mmm <- rbind(c(sum(tout[1,]),rep(0,ncol(tout[1,])-1)),tout) %>% as.matrix() #add back t=0 when all inviduals are in healthy state
+        mmm2 <- integrator(mmm,method = method) #non-discounted integration
+        dmm <- integrator(diag(exp( 0:n.t * -d.r)) %*% mmm, method=method) #discounted integration
+        
+        # other metrics 
+        possible  <- as.vector(dmm %*% c(1,rep(1,d_at*interval+1),1,1,0,0,0))/interval #discounted life years
+        fatal_b   <- sum(mmm2[n.t,c("BD1","BD2")]) #fatal B count
+        living    <- n.i - sum(mmm2[n.t,c("BD1","BD2","D")]) #living individuals by the end of simulation
+        disutil_a <- as.vector(dmm  %*% c(0,rep(d_a,d_at*interval),0,0,0,0,0,0))/ interval #discounted disutility from A
+        disutil_b <- as.vector(dmm  %*% c(0,rep(0,d_at*interval+1),d_b,d_b,0,0,0))/ interval #discounted disutility from B
+        c.treat   <- as.vector(dmm  %*% c(0,c_a,rep(0,d_at*interval),c_bs,0,c_bd,0,0)) #discounted adverse event costs
 
         list(
-            raw_ct = mm,
-            count = mmm,
+            # raw_ct = mmm,
+            count = mmm2,
             pop     = df.Pop,
             results = c(dCOST       = sum(cc),
                         dQALY       = sum(ee),
@@ -251,7 +237,7 @@ microsim_run <- function(params, N = NULL, method="beginning")
     }) 
 }
 
-
+# Combined model: Run Both Strategies
 microsim_icer <- function(params, reference=NULL, genotype=NULL, seed=NULL, method="life-table",...)
 {
     if(!is.null(seed)) set.seed(seed)
@@ -277,4 +263,4 @@ microsim_icer <- function(params, reference=NULL, genotype=NULL, seed=NULL, meth
     )
 }
 
-# microsim_icer(params,N=1000) #sample code to run the model
+# microsim_icer(params,N=1000,seed=123) #sample code to run the model
