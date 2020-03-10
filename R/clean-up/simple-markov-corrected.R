@@ -4,6 +4,12 @@
 # source(here("common.R"))
 # source(here("simple-params.R"))
 
+# NOTE: Due to nature of temporary disutility in our case, 
+# different cycle lengths require different construction of tunnel accumulators (non-Markovian parts).
+# It might be feasible to build a more flexible version of the model, 
+# but please note this script only works for a yearly cycle.
+params$interval <- 1
+
 #### Embed Transition Probability Matrices ####
 markov_corr_tp <- function(params, v.n, t)
 {
@@ -53,8 +59,8 @@ markov_corr_tp <- function(params, v.n, t)
     # PTUN is a "waste" bucket necessary for bookkeeping
     # Transitions into PTUN keep track of things that exited tunnel state
     # for reasons other than expiration of the tunnel, i.e. external risks
-    tr["TUN", "PTUN"]  <- tr["A", "BD"] + tr["A", "D"]
-    tr["TUN", "TUN"]   <- -sum(tr["A", c("BD", "D")]) # semi-Markovian
+    tr["TUN", "PTUN"]  <- tr["A", "BD"] + tr["A", "D"] + tr["A", "BS"]
+    tr["TUN", "TUN"]   <- -sum(tr["A", c("BD", "D", "BS")]) # semi-Markovian
     
     ###########################################
     ## Embed into unit (interval) timestep the matrix
@@ -151,7 +157,7 @@ markov_corr <- function(params, N=NULL, gene=0, test=0, method="beginning")
 
     # Discounted Disutilities
     disutil_a <- d_a*sum(dmm[,"TUN"]) / interval #discounted disutility from A
-    disutil_b <- d_b*sum(dmm[,c("BS")]) / interval#discounted disutility from B
+    disutil_b <- d_b*sum(dmm[,c("BS")]) / interval #discounted disutility from B
 
     list(
       m.M     = m.M,
