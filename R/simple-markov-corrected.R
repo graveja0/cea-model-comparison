@@ -52,8 +52,8 @@ markov_corr_tp <- function(params, v.n, t)
     # PTUN is a "waste" bucket necessary for bookkeeping
     # Transitions into PTUN keep track of things that exited tunnel state
     # for reasons other than expiration of the tunnel, i.e. external risks
-    tr["TUN", "PTUN"]  <- tr["A", "BD"] + tr["A", "D"]
-    tr["TUN", "TUN"]   <- -sum(tr["A", c("BD", "D")]) # semi-Markovian
+    tr["TUN", "PTUN"]  <- tr["A", "BD"] + tr["A", "D"] + tr["A", "BS"]
+    tr["TUN", "TUN"]   <- -sum(tr["A", c("BD", "D", "BS")]) # semi-Markovian
     
     ###########################################
     ## Embed into unit (interval) timestep the matrix
