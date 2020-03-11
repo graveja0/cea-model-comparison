@@ -1,16 +1,17 @@
 # Load the following packages and scripts to run this model independently
-library(here)
-library(dplyr)
-library(tidyr)
-library(purrr)
-library(Matrix)
-source(here("common.R"))
+# library(here)
+# library(dplyr)
+# library(tidyr)
+# library(purrr)
+# library(Matrix)
+# source(here("common.R"))
 
 ### 01 inputs ####
 source(here("simple-params.R"))
 source(here("simple-markov-corrected.R"))
 
-#Get embedded transition probability matrices defined in Markov model (only run yearly cycle, i.e. interval=1)
+# Get embedded transition probability matrices defined in the embedded version of Markov model.
+# Cycle length only affects the contruction of non-Markovian accumulators while the Markovian transition probability matrices still hold.
 markov_corr_get <- function(params, gene=0, test=0)
 {
   params$p_g <- gene

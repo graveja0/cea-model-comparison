@@ -17,39 +17,29 @@ options(warnPartialMatchAttr = FALSE,
 
 
 library(tidyverse)
-library(directlabels)
-library(patchwork)
-library(rlang)
-library(randtoolbox)
-library(microbenchmark)
-library(progress)
+library(magrittr)
 library(here)
-library(fs)
 library(deSolve)
-library(heemod)
-library(dplyr)
-library(purrr)
 library(flexsurv)
-library(furrr)
 library(conflicted)
-library(tangram)
-library(furrr)
-library(microbenchmark)
-library(kableExtra)
 library(gt)
-source(here("R/plot-theme.R"))
-  library(tcltk)
-  library(iterators)
-library(parallel)
-library(doParallel)
+source(here("plot-theme.R"))
 library(ggnewscale)
-# conflicted::conflict_scout()
-# heemood and purrr: modify
+library(Matrix)
 conflict_prefer("filter", "dplyr")
 conflict_prefer("set_names", "magrittr")
 
 
-source(here::here("R/manifest.R"))
+source(here("common.R"))
+source(here("simple-params.R"))
+source(here("simple-des.R"))
+source(here("simple-deq.R"))
+source(here("simple-markov.R"))
+source(here("simple-markov-corrected.R"))
+source(here("simple-markov-corrected-monthly.R"))
+source(here("simple-microsim.R"))
+source(here("simple-microsim-corrected.R"))
+
 ```
 
 ## Model Parameters 
@@ -86,51 +76,48 @@ convert_to_df <- function(df) df %>% as.data.frame() %>% rownames_to_column() %>
 # Differntial Equations
 icer_deq <- deq_icer(params)
 
-# Uncorrected Markov 
+# Embedded Markov 
 params$interval = 1
-icer_mar_corr_1y <- markov_comb_corr(params)
+icer_mar_corr_1y <- markov_corr_icer(params)
 params$interval = 12
-icer_mar_corr_1m <- markov_comb_corr(params)
-params$interval = 365
-icer_mar_corr_1d <- markov_comb_corr(params)
+icer_mar_corr_1m <- markov_corr_m_icer(params)
 
 # Uncorrected Markov 
 params$interval = 1
-icer_mar_1y <- markov_comb(params) 
+icer_mar_1y <- markov_icer(params) 
 params$interval = 12
-icer_mar_1m <- markov_comb(params) 
+icer_mar_1m <- markov_icer(params) 
 params$interval = 365
-icer_mar_1d <- markov_comb(params) 
+icer_mar_1d <- markov_icer(params) 
 
 # Discrete Event Simulation
 icer_des <- des_icer(params,N = 1e7, seed = 123)
 
 # Microsimulation 
-load("~/box/microsim_runs/microsim_1b_daily.rda")
-icer_micro_d <- runs[1:(1e7/1e3),] %>% apply(2,mean) 
+# Due to high computation demand, our base case results for the microsimulatiob models were derived by 
+# aggregating simulations with small cohort size (1k individuals).
+# Please refer to parallel_microsim.R for a mini example of how we iterate the simulation and scale it up.
+# Or directly load the results.
+micro_r <- read.csv(here("data/microsim_results.csv"),stringsAsFactors = FALSE,row.names = NULL) 
+cn <- c("dCOST.ref","dCOST.test","dQALY.ref","dQALY.test","ICER","NMB")
+icer_micro_y <- micro_r[micro_r$model=="micro_y",] %>% select_at(cn)
+icer_micro_d <- micro_r[micro_r$model=="micro_d",] %>% select_at(cn)
+icer_micro_corr_y <- micro_r[micro_r$model=="micro_corr_y",] %>% select_at(cn)
+icer_micro_corr_m <- micro_r[micro_r$model=="micro_corr_m",] %>% select_at(cn)
 
-load("~/box/microsim_runs/microsim_yr_nov_1b.rda")
-icer_micro_y <- runs[1:(1e7/1e3),] %>% apply(2,mean) 
 
-load("~/box/microsim_runs/microsim_corr_yr_nov_1b.rda")
-icer_micro_corr_y <- runs[1:(1e7/1e3),] %>% apply(2,mean) 
-
-set.seed(12345)
-icer_micro_corr_y1b <- runs[sample(1:nrow(runs),1e9/1e3,replace=TRUE),] %>% apply(2,mean)
-
-1000000000/1e3
 result <-
   list("DEQ" = convert_to_df(icer_deq), 
        "MARKOV_DAY" = convert_to_df(icer_mar_1d),
        "MARKOV_MON" = convert_to_df(icer_mar_1m),
        "MARKOV_YR" = convert_to_df(icer_mar_1y),
-       "MARKOV_EMB_DAY" = convert_to_df(icer_mar_corr_1d),
        "MARKOV_EMB_MON" = convert_to_df(icer_mar_corr_1m),
        "MARKOV_EMB_YR" = convert_to_df(icer_mar_corr_1y),
        "DES" = convert_to_df(icer_des),
-       "MICRO_DAY" = convert_to_df(icer_micro_d),
-       "MICRO_YR" = convert_to_df(icer_micro_y),
-       "MICRO_CORR_YR" = convert_to_df(icer_micro_corr_y))
+       "MICRO_DAY" = icer_micro_d,
+       "MICRO_YR" = icer_micro_y,
+       "MICRO_CORR_YR" = icer_micro_corr_y,
+       "MICRO_CORR_MON" = icer_micro_corr_m)
 
 base_case_result <- 
   result %>% 
@@ -140,33 +127,38 @@ base_case_result <-
     tbl_df() %>% 
     separate(col = output,into=c("output","strategy"))  
 
-table_main_results <- 
-   base_case_result %>% 
-        filter(is.na(strategy)) %>% 
+names(result)
+lbl_m <- c(
+                          "Differential Equations",
+                          "Markov Cohort - Daily Cycle","Markov Cohort - Monthly Cycle","Markov Cohort - Yearly Cycle",
+                          #"Embedded Markov Cohort - Daily Cycle",
+                          "Embedded Markov Cohort - Monthly Cycle",
+                          "Embedded Markov Cohort - Yearly Cycle",
+                          "Discrete Event Simulation",
+                          "Microsimulation - Daily Cycle","Microsimulation - Yearly Cycle",
+                          "Embedded Microsimulation - Yearly Cycle","Embedded Microsimulation - Monthly Cycle"
+                        )
+
+t1 <- base_case_result %>% #NMB & ICER
+          filter(is.na(strategy)) %>% 
         mutate(output = factor(output,levels = c("dQALY","dCOST","ICER","NMB"), 
                                labels = c("Mean QALYs","Mean Costs","ICER","Net Monetary Benefit"))) %>% 
           mutate(model = factor(model, levels = names(result), 
-                        labels = c(
-"Differential Equations","Embedded Markov Cohort - Yearly Cycle","Markov Cohort - Daily Cycle","Markov Cohort - Monthly Cycle","Markov Cohort - Yearly Cycle","Discrete Event Simulation","Microsimulation - Yearly Cycle","Microsimulation - Daily Cycle","Embedded Microsimulation - Yearly Cycle"
+                        labels = lbl_m)) %>% 
+        select(model,output,incremental=value)
 
-                        ))) %>% 
-        select(model,output,incremental=value) %>% 
-  bind_rows(
-      base_case_result %>% 
+t2 <- base_case_result %>% #discounted cost/QALY/diff
   filter(!is.na(strategy)) %>% 
   spread(strategy,value) %>% 
   mutate(output = factor(output,levels = c("dQALY","dCOST"), 
                          labels = c("Mean QALYs","Mean Costs"))) %>% 
   mutate(model = factor(model, levels = names(result), 
-                        labels = c(
-                          "Differential Equations","Embedded Markov Cohort - Yearly Cycle","Markov Cohort - Daily Cycle",
-                          "Markov Cohort - Monthly Cycle","Markov Cohort - Yearly Cycle","Discrete Event Simulation",
-                          "Microsimulation - Yearly Cycle","Microsimulation - Daily Cycle","Embedded Microsimulation - Yearly Cycle"
-                        ))) %>% 
+                        labels = lbl_m)) %>% 
   arrange(output,model) %>% 
   select(output,model,ref,test) %>% 
   mutate(incremental = test - ref) 
-  ) %>% 
+
+table_main_results <- bind_rows(t1,t2) %>% 
   mutate_at(vars(ref,test,incremental),function(x) ifelse(abs(x)<100,round(x,3),round(x,0))) %>%  
   mutate(output = ifelse(model == "Differential Equations",output, "")) %>% 
   mutate_all(funs(as.character)) %>% 
@@ -179,14 +171,12 @@ table_main_results %>%
   write.csv(here("output/icer-results.csv"))
 
 
-which_to_show <- which(pull(table_main_results[,2],1) %in% c("Differential Equations","Markov Cohort - Yearly Cycle", "Discrete Event Simulation"))
-
 table_main_results[,-1] %>% 
   gt(rowname_col = "Model Type") %>% 
-  tab_row_group(rows = 1:9, group = "ICER") %>% 
-  tab_row_group(rows = 10:18, group = "Net Monetary Benefit (NMB)") %>% 
-  tab_row_group(rows = 19:27, group = "Mean QALYs") %>% 
-  tab_row_group(rows = 28:36, group = "Mean Costs") %>% 
+  tab_row_group(rows = 1:11, group = "ICER") %>% 
+  tab_row_group(rows = 12:22, group = "Net Monetary Benefit (NMB)") %>% 
+  tab_row_group(rows = 23:33, group = "Mean QALYs") %>% 
+  tab_row_group(rows = 34:44, group = "Mean Costs") %>% 
   tab_footnote(footnote = "QALY = Quality-Adjusted Life Years", cells_group("Mean QALYs")) %>% 
   tab_footnote(footnote = "ICER = Incremental Cost-Effectiveness Ratio", cells_group("ICER")) %>% 
   #tab_footnote(footnote = "Willingness to Pay = $100,000 per QALY",cells_group("Net Monetary Benefit")) %>% 
@@ -195,125 +185,91 @@ table_main_results[,-1] %>%
   tab_options(
     table.width = pct(75)
   ) %>% 
-  gtsave(filename = "figs/01_main-results.png")
+  gtsave(filename = here("figs/01_main-results.png"))
   
 ```
 
-## Model Convergence
+## Examine Stochasticity
 
-```{r}
-library(tidyverse)
-library(here)
-library(deSolve)
-library(dplyr)
-library(purrr)
-library(flexsurv)
-library(furrr)
-library(conflicted)
-library(ggnewscale)
-# conflicted::conflict_scout()
-# heemood and purrr: modify
-conflict_prefer("filter", "dplyr")
-conflict_prefer("set_names", "magrittr")
-source(here::here("R/manifest.R"))
+```{r model_convergence}
+#### Model Iteration Results ####
+# Model results without stochasticity: DEQ, Markov
+icer_deq
+icer_mar_1y
+icer_mar_corr_1y
 
-#### Convergence ####
-icer_deq <- deq_icer(params)
-icer_mar <- markov_comb(params) 
-icer_mar_corr <- markov_comb_corr(params)
+# Model results with stochasticity: DES, Microsim
+# Each model was run 1k times for each N in our study. 
+# Please refer to iterate_des_microsim.R for a mini example of how we generate our results
+# Or directly load the results.
+icer_1k <- read.csv(here("data/icer_des_micro_1k.csv"),stringsAsFactors = FALSE,row.names = NULL) 
+icer_des_1k <- icer_1k[icer_1k$name=="icer_des_1k",]
+icer_micro_d_1k <- icer_1k[icer_1k$name=="icer_micro_d_1k",]
+icer_micro_y_1k <- icer_1k[icer_1k$name=="icer_micro_y_1k",]
+icer_micro_corr_y_1k <- icer_1k[icer_1k$name=="icer_micro_corr_y_1k",]
+icer_micro_corr_m_1k <- icer_1k[icer_1k$name=="icer_micro_corr_m_1k",]
 
-icer_des <- read_rds("~/box/microsim_runs/convergence/icer_des_1k.rds")
-
-load("~/Box Sync/microsim_runs/convergence/icer_micro_N_e6_9.rds")
-icer_micro_d <- icer_micro1d_N
-icer_micro_y <- icer_micro_N
-load("~/Box Sync/microsim_runs/convergence/icer_micro_N_e9_10.rds")
-icer_micro_d <- icer_micro_d %>% bind_rows(icer_micro1d_N)
-icer_micro_y <- icer_micro_y %>% bind_rows(icer_micro_N)
-load("~/Box Sync/microsim_runs/convergence/icer_micro_N_e10_11.rds")
-icer_micro_d <- icer_micro_d %>% bind_rows(icer_micro1d_N)
-icer_micro_y <- icer_micro_y %>% bind_rows(icer_micro_N)
-
-icer_micro_corr_y <- read_rds("~/Box Sync/microsim_runs/convergence/icer_micro_corr_y_e6_9_nov.rds") %>% 
-    bind_rows(read_rds("~/Box Sync/microsim_runs/convergence/icer_micro_corr_y_e9_10_nov.rds")) %>% 
-    bind_rows(read_rds("~/Box Sync/microsim_runs/convergence/icer_micro_corr_y_e10_11_nov.rds"))
-
-
-#### p1 ####
+####Convergence Box Plots####
 lines <- data.frame(model=c("DEQ","MARKOV","MARKOV-EMB"),
-                    NMB=c(icer_deq["NMB"],icer_mar["NMB"],icer_mar_corr["NMB"]),stringsAsFactors = F) 
+                    NMB=c(icer_deq["NMB"],icer_mar_1y["NMB"],icer_mar_corr_1y["NMB"]),stringsAsFactors = F) %>% 
+  mutate(timestep=model)
 
-dots <-   icer_des %>% mutate(model="DES") %>% 
-    bind_rows(icer_micro_y %>% mutate(model="Microsim Yearly")) %>% 
-    bind_rows(icer_micro_d %>% mutate(model="Microsim Daily")) %>% 
-    bind_rows(icer_micro_corr_y %>% mutate(model="Microsim Yearly Corrected")) %>% 
+dots <-   icer_des_1k %>% mutate(model="DES") %>% 
+    bind_rows(icer_micro_y_1k %>% mutate(model="Microsim Yearly")) %>% 
+    bind_rows(icer_micro_d_1k %>% mutate(model="Microsim Daily")) %>% 
+    bind_rows(icer_micro_corr_y_1k %>% mutate(model="Microsim Yearly Corrected")) %>% 
+    bind_rows(icer_micro_corr_m_1k %>% mutate(model="Microsim Monthly Corrected")) %>% 
     group_by(model,N) %>% slice(1) %>% summarise(NMB=mean(NMB))
 
+icer_micro_d_1k$timestep <- "MICROSIM-D"
+icer_micro_y_1k$timestep <- "MICROSIM-Y"
+icer_micro_corr_y_1k$timestep <- "MICROSIM-EMB-Y"
+icer_micro_corr_m_1k$timestep <- "MICROSIM-EMB-M"
+icer_des_1k$timestep <- "DES"
 
-ggplot() +
-    geom_hline(data=lines,aes(yintercept=NMB,lty=model,colour=model,size=model)) +
-    scale_linetype_manual(name="",values=c("solid","dashed","dotdash")) + 
-    scale_color_manual(name="",values = c("black","darkgreen","green")) + 
-    scale_size_manual(name="",values = c(0.5,0.5,0.8)) +
-    new_scale_color() +
-    geom_point(data=dots,aes(x=N,y=NMB,shape=model,colour=model,alpha=model)) +
-    scale_color_manual(name="",values = c("tan4","orange2","red3","blue")) +
-    scale_shape_manual(name="",values =  c(20,10,4,18)) +
-    scale_alpha_manual(name="",values = c(1,1,1,0.7)) +
-    theme_bw() +
-    ylab("NMB\n(Genotype vs. Reference)") + 
-    xlab("Number of Simulated Patients\n(log10)") + 
-    scale_x_continuous(breaks = 10^seq(2,12,1), labels = seq(2,12,1), trans="log10") +
-    theme(panel.grid.minor.y = element_blank())
+micro <- bind_rows(icer_micro_d_1k, icer_micro_y_1k,icer_micro_corr_y_1k,icer_micro_corr_m_1k,
+                   icer_des_1k[,c("NMB", "N", "seed", "iteration", "timestep")]) 
+micro$logN <- factor(round(log10(micro$N)))
 
+tiff("./figs/Micro Simulation Convergence.tiff",res=300,units="in",width=6.5, height=5)
 
-#### p2 ####
-icer_micro_d$timestep <- "MICROSIM-D"
-icer_micro_y$timestep <- "MICROSIM-Y"
-icer_micro_corr_y$timestep <- "MICROSIM-EMB-Y"
-icer_des$timestep <- "DES"
-
-micro <- rbind(icer_micro_d, icer_micro_y,icer_micro_corr_y)
-micro <- rbind(micro, icer_des[,c("NMB", "N", "seed", "iteration", "timestep")])
-micro$logN <- factor(round(log(micro$N,base = 10)))
-
-ll <- lines %>% mutate(timestep=model)
-
-# Micro Simulation Convergence
-library(directlabels)
-p <- 
-ggplot(data= micro %>% filter(N>1e3), aes(x=logN,y=NMB,color=timestep,fill=timestep),alpha=0.7) +
-    geom_boxplot(outlier.shape = NA) +
-    scale_color_manual(name="",values = c("grey40","orange2","red3","blue")) +
-    scale_fill_manual(name="",values = c("grey80","gold1","tomato","skyblue")) +
+ggplot(micro, aes(x=logN,y=NMB,color=timestep,fill=timestep),alpha=0.7) +
+    geom_boxplot(coef=1e30) +
+    scale_color_manual(name="",values = c("grey40","orange2","red3","blue","black")) +
+    scale_fill_manual(name="",values = c("grey80","gold1","tomato","skyblue","khaki4")) +
     new_scale_color() +
     geom_hline(data=ll,aes(yintercept=NMB,color=timestep,linetype=timestep)) + 
     scale_linetype_manual(name="",values=c("solid","dashed","dotdash")) + 
     scale_color_manual(name="",values = c("black","darkgreen","purple")) + 
-    scale_size_manual(name="",values = c(0.25,0.25,2)) +
-    xlab("Number of Simulated Patients\n(log10)") + 
-    theme_bw() + 
-    scale_x_discrete(breaks = 2:11, labels = c("2\n100","3\n1k","4\n10k","5\n100k","6\n1mil","7\n10mil","8\n100mil","9\n1bil","10\n10bil","11\n100bil")) + 
-    ylim(c(-1100,1100))
-p
+    scale_size_manual(name="",values = c(0.5,0.5,0.8)) +
+    xlab("Number of Simulated Patients\n(log)") + 
+    theme_bw() +
+    theme(panel.grid.minor.y=element_blank())
+
+dev.off()
+
+
 ```
 
 ## Model Run Time
 
-```{r}
+```{r microbenchmark}
+### We ran each model 100 times using microbenchmark on ACCRE.###
+# Please refer to compare_runtime.R for a mini example of how we generate our results
+# Or directly load the results.
+# For stochastic models (DES/microsimulation), we ran at sample size of 10 million individuals.
+rt <- read.csv(here("data/runtime.csv"),stringsAsFactors = FALSE,row.names = NULL)
+b_deq <- rt[rt$name == "b_deq", ]
+b_des <- rt[rt$name == "b_des", ]
+b_mark_y <- rt[rt$name == "b_mark_y", ]
+b_mark_m <- rt[rt$name == "b_mark_m", ]
+b_mark_d <- rt[rt$name == "b_mark_d", ]
+b_mark_corr_y <- rt[rt$name == "b_mark_corr_y", ]
+b_mark_corr_m <- rt[rt$name == "b_mark_corr_m", ]
+b_micro_y <- rt[rt$name == "b_micro_y", ]
+b_micro_corr_y <- rt[rt$name == "b_micro_corr_y", ]
 
-#### runtime ####
-load("~/Box Sync/microsim_runs/run_time_1e7/run_t_deq.rda")
-load("~/Box Sync/microsim_runs/run_time_1e7/run_t_des.rda")
-load("~/Box Sync/microsim_runs/run_time_1e7/run_t_mark_y.rda")
-load("~/Box Sync/microsim_runs/run_time_1e7/run_t_mark_d.rda")
-load("~/Box Sync/microsim_runs/run_time_1e7/run_t_mark_m.rda")
-load("~/Box Sync/microsim_runs/run_time_1e7/run_t_mark_corr_y.rda")
-load("~/Box Sync/microsim_runs/run_time_1e7/run_t_mark_corr_m.rda")
-load("~/Box Sync/microsim_runs/run_time_1e7/run_t_micro_y.rda")
-load("~/Box Sync/microsim_runs/run_time_1e7/run_t_micro_corr_yr_nov.rda")
-
-rt <- b_deq %>% mutate(model="DEQ") %>% 
+runtimes <- b_deq %>% mutate(model="DEQ") %>% 
     bind_rows(b_des %>% mutate(model="DES (10mil)")) %>% 
     bind_rows(b_mark_y %>% mutate(model="MARKOV-Y")) %>% 
     bind_rows(b_mark_m %>% mutate(model="MARKOV-M")) %>% 
@@ -324,572 +280,12 @@ rt <- b_deq %>% mutate(model="DEQ") %>%
     bind_rows(b_micro_corr_y %>% mutate(model="MICROSIM-EMB-Y (10 mil)")) %>% 
     mutate(times=time/10^9)
     
-rt %>% group_by(model,expr) %>% 
-    summarise(med = quantile(times,0.5,na.rm=TRUE)) %>% 
-    arrange(desc(med))
-
-value_labs <- paste(seq(-3,4,0.5),paste0("\n"),signif(10^seq(-3,4,0.5),2),"sec")
-
-ggplot(rt) +
-    geom_boxplot(aes(x=reorder(model,-times),y=times),outlier.shape = 1,outlier.alpha = 0.5) +
-    scale_y_continuous(breaks = 10^seq(-3,4,0.5), 
-                       labels = value_labs, trans="log10") + ylab("log10(seconds)") + xlab("Method") +
-    coord_flip() + theme_bw()  + xlab("")
+tiff("./figs/Runtime Comparison.tiff",res=300,units="in",width=6, height=5)
+ggplot(runtimes) +
+    geom_boxplot(aes(x=model,y=times),outlier.shape = 1,outlier.alpha = 0.5) +
+    scale_y_continuous(breaks = 10^seq(-3,4,0.5), labels = seq(-3,4,0.5), trans="log10") + ylab("log10(seconds)") + xlab("Method") +
+    coord_flip() + theme_bw() +
+    theme(panel.grid.major.y=element_blank())
+dev.off()
 
 ```
-
-## PSA 
-
-```{r psa halton draw, cache= TRUE, eval = FALSE}
-prep_psa_params <- function(params_psa = params_psa_realistic, params_depend=params_psa_realistic_depend,n_draw=1e3) {
-  
-  ###There are two types of parameters: 
-  ###first type draw value from a distribution (or sd=0 as constant params), which feed the halton draw function
-  ###second type are calculated parameter depending on other parameters
-  
-  ###keep only param functions that directly draw values from a distribution
-  which_are_fns <- params_psa %>% map_lgl( ~ is.function(.x))
-  n <- params$n
-  
-  psa_values <- list()
-  for (p in names(params_psa[which_are_fns])) {
-    cat(p)
-    psa_values[[p]] <- get_psa_values(params_psa[p], params = params)
-    cat("\n")
-  }
-  psa_values <-
-    psa_values %>%
-    bind_rows(.id = "rowname")
-  
-  ### psa params table
-  # tbl <-
-  #   params %>% unlist() %>% data.frame() %>%
-  #   rownames_to_column() %>%
-  #   filter(rowname %in% names(params_lut)) %>%
-  #   mutate(desc = as.character(params_lut[rowname])) %>%
-  #   select(3,1,2) %>%
-  #   left_join(psa_values,c("rowname")) %>%
-  #   mutate_at(vars(3),function(x) as.numeric(paste0(x))) %>%
-  #   mutate_at(vars(3),function(x) ifelse(x>1000,x,ifelse(x<=1,round(x,3), round(x,1)))) %>%
-  #   filter(!is.na(distribution))
-  #
-  #
-  # p_tbl <-
-  # tbl %>%
-  #   #filter(!grepl("NOT CURRENTLY",desc)) %>%
-  #   gt(rowname_col = "desc") %>%
-  #   tab_header(
-  #     title = "Model Parameters"
-  #   ) %>%
-  #   tab_options(
-  #     table.width = pct(100)
-  #   ) %>%
-  #   fmt_missing(columns = 2:10, missing_text = "") %>%
-  #   cols_label(. = "Value",
-  #              #desc = "Parameter",
-  #              rowname = "Short Name",
-  #              distribution = "PSA Distribution",
-  #              mean = "Mean",
-  #              sd = "Standard Deviation",
-  #              max = "Maximum",
-  #              min = "Minimum",
-  #              shape1 = "Beta Shape 1",
-  #              shape2 = "Beta Shape 2",
-  #              lambda = "Mean (Poisson)")
-  #
-  # p_tbl  %>% gtsave(filename = "figs/01_psa-parameters.png")
-  
-  ### halton draw
-  draws <-
-    randtoolbox::halton(n = n_draw, dim = length(params_psa[which_are_fns])) %>% as.matrix()
-  
-  if (!is.null(params_depend)) {
-    draws %>%
-      data.frame() %>%
-      magrittr::set_names(names(params_psa[which_are_fns]))  %>%
-      pmap(list) %>%
-      map( ~ (get_params(.x, params = params_psa[which_are_fns]))) %>%
-      map( ~ (get_params2(.x, params = params_psa_realistic_depend))) %>% #add calculated params
-      map( ~ (data.frame(.x))) %>% bind_rows() %>%
-      pmap(list)
-    
-  } else {
-    draws %>%
-      data.frame() %>%
-      magrittr::set_names(names(params_psa[which_are_fns]))  %>%
-      pmap(list) %>%
-      map( ~ (get_params(.x, params = params_psa[which_are_fns]))) %>%
-      map( ~ (data.frame(.x))) %>% bind_rows() %>%
-      pmap(list)
-  }
-  
-   
-
-}
-
-halton_draws <- prep_psa_params()
-# params_halton <- 
-#   halton_draws %>% 
-#   map(~(c(.x,params_psa[!which_are_fns]))) 
-# 
-# params_halton_transpose <- 
-#   params_halton %>% 
-#   transpose()
-
-# halton_draws %>% 
-#   write_rds(here("output/psa/01_halton-draws.rds"))
-```
-
-```{r run psa,cache= TRUE, eval = FALSE}      
-run_psa = FALSE
-
-if (run_psa) {
-  library(parallel)
-  library(doParallel)
-  library(tcltk)
-  library(iterators)
-  nc <- detectCores() 
-  n <- length(halton_draws)
-  
-  #----------
-  ## DES-PSA
-  #----------
-  cl <- parallel::makeCluster(nc)
-  doParallel::registerDoParallel(cl)
-  clusterExport(cl, c("n"))
-  psa_des <- 
-    foreach(i = icount(length(halton_draws)),.packages = "tcltk") %dopar% {
-      source(here::here("R/manifest.R"))
-      if(!exists("pb")) pb <- tkProgressBar("Parallel task", min=1, max=n)
-      setTkProgressBar(pb, i)
-      des_icer(halton_draws[[i]])
-    }
-  stopCluster(cl)
-  psa_des %>% write_rds(here("output/psa/01_des-psa.rds"))
-  
-  #----------
-  ## DEQ-PSA
-  #----------
-  cl <- parallel::makeCluster(nc)
-  doParallel::registerDoParallel(cl)
-  clusterExport(cl, c("n"))
-  psa_deq <- 
-    foreach(i = icount(length(halton_draws)),.packages = "tcltk") %dopar% {
-      source(here::here("R/manifest.R"))
-      if(!exists("pb")) pb <- tkProgressBar("Parallel task", min=1, max=n)
-      setTkProgressBar(pb, i)
-      deq_icer(halton_draws[[i]])
-    }
-  stopCluster(cl)
-  psa_deq %>% write_rds(here("output/psa/01_deq-psa.rds"))
-  
-  # psa_deq <-
-  #   halton_draws %>%
-  #   future_map(~(deq_icer(.x)), .progress = TRUE)
-  # psa_deq %>% write_rds(here("output/psa/01_deq-psa.rds"))
-  # 
-  
-  #----------
-  ## MAR-PSA
-  #----------
-  cl <- parallel::makeCluster(nc)
-  doParallel::registerDoParallel(cl)
-  clusterExport(cl, c("n"))
-  psa_mar <- 
-    foreach(i = icount(length(halton_draws)),.packages = "tcltk") %dopar% {
-      source(here::here("R/manifest.R"))
-      if(!exists("pb")) pb <- tkProgressBar("Parallel task", min=1, max=n)
-      setTkProgressBar(pb, i)
-      markov_comb(halton_draws[[i]])
-    }
-  stopCluster(cl)
-  psa_mar %>% write_rds(here("output/psa/01_mar-psa.rds"))
-  
-  #----------
-  ## COR-MAR-PSA
-  #----------
-  cl <- parallel::makeCluster(nc)
-  doParallel::registerDoParallel(cl)
-  clusterExport(cl, c("n"))
-  psa_mar_corr <- 
-    foreach(i = icount(length(halton_draws)),.packages = "tcltk") %dopar% {
-      source(here::here("R/manifest.R"))
-      if(!exists("pb")) pb <- tkProgressBar("Parallel task", min=1, max=n)
-      setTkProgressBar(pb, i)
-      markov_comb_corr(halton_draws[[i]])
-    }
-  stopCluster(cl)
-  psa_mar_corr %>% write_rds(here("output/psa/01_mar-corr-psa.rds"))
-  
-
-  # psa_microsim <- 
-  #   halton_draws %>%
-  #   future_map(~(microsim_icer(.x, N = 1e6, seed=123)),.progress = TRUE)
-  # psa_microsim %>% write_rds(here("output/psa/01_microsim-psa.rds"))
-}
-
-psa_des <-  read_rds(here("output/psa/01_des-psa.rds"))
-psa_deq <- read_rds(here("output/psa/01_deq-psa.rds"))
-psa_mar <- read_rds(here("output/psa/01_mar-psa.rds"))
-psa_mar_corr <- read_rds(here("output/psa/01_mar-corr-psa.rds"))
-# 
-df_psa_des <- psa_des %>%
-  map(~(.x %>% t() %>% tbl_df())) %>%
-  bind_rows() %>%
-  mutate(iteration = row_number()) %>%
-  mutate(qaly_reference = dQALY.ref,
-         qaly_test = dQALY.test,
-         cost_reference = dCOST.ref,
-         cost_test = dCOST.test) %>%
-  select(iteration,contains("qaly_"),contains("cost_")) %>%
-  mutate(model = "Discrete Event Simulation")
-
-df_psa_deq <- psa_deq %>%
-  map(~(.x %>% t() %>% tbl_df())) %>%
-  bind_rows() %>%
-  mutate(iteration = row_number()) %>%
-  mutate(qaly_reference = dQALY.ref,
-         qaly_test = dQALY.test,
-         cost_reference = dCOST.ref,
-         cost_test = dCOST.test) %>%
-  select(iteration,contains("qaly_"),contains("cost_")) %>%
-  mutate(model = "Differential Equations")
-
-df_psa_mar <- psa_mar %>%
-  map(~(.x %>% t() %>% tbl_df())) %>%
-  bind_rows() %>%
-  mutate(iteration = row_number()) %>%
-  mutate(qaly_reference = dQALY.ref,
-         qaly_test = dQALY.test,
-         cost_reference = dCOST.ref,
-         cost_test = dCOST.test) %>%
-  select(iteration,contains("qaly_"),contains("cost_")) %>%
-  mutate(model = "Markov Cohort")
-
-
-df_psa_mar_corr <- psa_mar_corr %>%
-  map(~(.x %>% t() %>% tbl_df())) %>%
-  bind_rows() %>%
-  mutate(iteration = row_number()) %>%
-  mutate(qaly_reference = dQALY.ref,
-         qaly_test = dQALY.test,
-         cost_reference = dCOST.ref,
-         cost_test = dCOST.test) %>%
-  select(iteration,contains("qaly_"),contains("cost_")) %>%
-  mutate(model = "Corrected Markov Cohort")
-
-df_psa <-
-  df_psa_deq %>%
-  bind_rows(df_psa_des) %>%
-  bind_rows(df_psa_mar) %>%
-  bind_rows(df_psa_mar_corr) %>%
-  mutate(diff_qaly = qaly_test - qaly_reference,
-         diff_cost = cost_test - cost_reference) %>%
-  left_join(
-    halton_draws %>% bind_rows() %>% mutate(iteration = row_number())
-  )
-# 
-df_psa %>% write_rds(here("output/psa/01_psa.rds")) 
-
-```
-
-
-```{r load psa, eval = FALSE}
-df_psa <- read_rds(here("output/psa/01_psa.rds"))
-
-df_psa_long <- 
-  df_psa %>% 
-  select(iteration,
-         model, 
-         qaly_reference,
-         qaly_test,
-         cost_reference,
-         cost_test) %>% 
-  gather(measure,value,-iteration,-model) %>% 
-  separate(measure,into=c("measure","strategy")) %>% 
-  spread(measure,value) 
-```
-
-```{r CE plane, eval = FALSE}
-p_ce_plane <- 
-  df_psa %>% 
-  ggplot(aes(x = diff_qaly, y = diff_cost, colour = model)) + 
-  geom_point() + 
-  geom_abline(slope = 100000, intercept = 0, lty = 2) + 
-  scale_x_continuous(limits = c(-.5,.5)) + 
-  scale_y_continuous(limits = c(-1000,7000)) +
-  geom_hline(aes(yintercept = 0)) + 
-  geom_vline(aes(xintercept = 0)) +
-  theme_minimal()
-
-direct.label(p_ce_plane,"smart.grid")
-```
-
-## Cost-Effectiveness Acceptability Frontier 
-
-```{r CEAF}
-plot_ceac <- function(psa_dt=df_psa_long,lambda_range=NULL,CEAF=TRUE) {
-  if(is.null(lambda_range)) {
-    lambda_range <- unique(c(seq(0,1000,100),seq(1000,5000,500),seq(5000,30000,1000),seq(30000,300000,5000)))
-  }
-
-  #calculate ceac
-  nc <- detectCores()
-  cl <- parallel::makeCluster(nc)
-  doParallel::registerDoParallel(cl)
-  clusterExport(cl, c("n"))
-  n <- length(lambda_range)
-  df_ceac_tmp <- 
-    foreach(i = icount(length(lambda_range)),.packages = "tcltk") %dopar% {
-      source(here::here("R/manifest.R"))
-      library(dplyr)
-      if(!exists("pb")) pb <- tkProgressBar("Parallel task", min=1, max=n)
-      setTkProgressBar(pb, i)
-      .x = lambda_range[i]
-      psa_dt %>% 
-        group_by(model) %>% 
-        mutate(nmb = as.numeric(paste0(.x)) * qaly - cost)
-    }
-  stopCluster(cl)
-  
-  df_ceac <- 
-    df_ceac_tmp %>% 
-    magrittr::set_names(lambda_range) %>% 
-    bind_rows(.id = "lambda") %>% 
-    mutate(lambda = as.numeric(paste0(lambda))) %>% 
-    group_by(model, iteration,lambda) %>% 
-    mutate(max = max(nmb)) %>% 
-    mutate(max = as.integer(nmb==max))
-  
-  # plot
-  p_ceac <- 
-    df_ceac %>% 
-    group_by(lambda,strategy,model) %>% 
-    #filter(model != "Markov Cohort") %>% 
-    summarise_at(vars(max),funs(mean)) %>% 
-    ggplot(aes(x = lambda, y= max)) + 
-    scale_x_continuous(labels = scales::comma) +
-    geom_line(aes(colour = strategy, lty = model)) + 
-    theme_minimal() + 
-    xlab("Willingness to Pay Threshold") + 
-    ylab("Pr(Cost Effective)")
-  
-  
-  #optional CEAF add on
-  if(CEAF) {
-    
-    cl <- parallel::makeCluster(nc)
-    doParallel::registerDoParallel(cl)
-    clusterExport(cl, c("n"))
-    df_ceaf_tmp <- 
-      foreach(i = icount(length(lambda_range)),.packages = "tcltk") %dopar% {
-        source(here::here("R/manifest.R"))
-        library(dplyr)
-        if(!exists("pb")) pb <- tkProgressBar("Parallel task", min=1, max=n)
-        setTkProgressBar(pb, i)
-        .x = lambda_range[i]
-        df_ceac %>% 
-          group_by(model,strategy,lambda) %>% 
-          mutate_at(vars(cost,qaly),funs(mean = mean)) %>% 
-          mutate(nmb = .x * qaly_mean - cost_mean) %>% 
-          ungroup() %>% 
-          select(-lambda)
-      }
-    stopCluster(cl)
-    
-    df_ceaf_cutpoints <- 
-      df_ceaf_tmp %>% 
-      magrittr::set_names(lambda_range)  %>% 
-      bind_rows(.id="lambda") %>% 
-      mutate(lambda = as.numeric(paste0(lambda))) %>%
-      group_by(model, lambda) %>% 
-      mutate(max = as.integer(nmb == max(nmb))) %>% 
-      filter(max ==1) %>% 
-      select(model, lambda,strategy) %>% 
-      unique()  %>% 
-      mutate(optimal = 1)
-    
-    df_ceaf <- 
-      df_ceac %>% 
-      group_by(model,lambda,strategy) %>% 
-      summarise_at(vars(max),funs(mean)) %>% 
-      inner_join(df_ceaf_cutpoints,c("model","lambda","strategy"))  
-    
-    df_ceaf_cutpoints_deq <- 
-      df_ceaf_cutpoints %>% 
-      filter(model == "Differential Equations") %>% 
-      filter(optimal==1) %>% 
-      ungroup() %>% 
-      select(-model)
-    
-    df_ceaf_cutpoints_mar <- 
-      df_ceaf_cutpoints %>% 
-      filter(model == "Markov Cohort") %>% 
-      filter(optimal==1) %>% 
-      ungroup() %>% 
-      select(-model)
-    
-    decision_error_range <- df_ceaf_cutpoints_deq %>% 
-      anti_join(df_ceaf_cutpoints_mar) %>% 
-      pull(lambda) %>% range()
-    
-    df_error <- 
-      data.frame(x = c(decision_error_range[1],decision_error_range[1],decision_error_range[2],decision_error_range[2]),
-                 y = c(0,1,1,0))
-    p_ceac <- p_ceac +
-      geom_line(data = df_ceaf %>% filter(optimal==1), aes(colour = strategy,lty=model),lwd=1) +
-      geom_polygon(data = df_error, aes(x = x, y = y),alpha = 0.15)
-  }
-  return(p_ceac)
-}
-
-#plot_ceac(df_psa_long,lambda_range,TRUE)
-plot_ceac(psa_dt = df_psa_long,CEAF = F)
-```
-
-## Examine Stochasticity
-
-```{r comparison graph, eval = FALSE}
-# sample_sizes <- 10^c(2, 2.25, 2.5, 2.75 , 3, 3.25, 3.5, 3.75, 4, 4.25, 4.5, 4.75, 5 , 5.25, 5.5, 5.75, 6, 6.25, 6.5, 6.75, 7,7.25,7.5,7.75,8)
-# 
-# nc <- detectCores()
-# cl <- parallel::makeCluster(nc)
-# doParallel::registerDoParallel(cl)
-# clusterExport(cl, c("n"))
-# n <- length(sample_sizes)
-# icer_des_N <-
-#     foreach(i = icount(length(sample_sizes)), .combine=bind_rows,.packages = "tcltk") %dopar% {
-#       library("dplyr")
-#       source(here::here("R/manifest.R"))
-#       if(!exists("pb")) pb <- tkProgressBar("Parallel task", min=1, max=n)
-#       setTkProgressBar(pb, i)  
-#       des_icer(params,seed=123,N=sample_sizes[i]) %>% t() %>% data.frame() %>% mutate(N = sample_sizes[i])
-#     }
-# stopCluster(cl)
-# icer_des_N %>% write_rds(here("output/icer_des_N_new.rds"))
-
-icer_des_N <- read_rds(here("output/icer_des_N_new.rds"))
-
-# Get Microsimulation Model Runs (batchs of 1k)
-load(here("output/microsim-results/microsim_1b_yearly.rda"))
-icer_microsim_1y <- runs
-
-load(here("output/microsim-results/microsim_1b_daily.rda"))
-icer_microsim_1d <- runs
-
-get_microsim_nmb <- function(df, n, seed = 123, wtp = params$wtp) {
-  set.seed(seed)
-  sampled_rows <- sample(1:nrow(df),n/1e3, replace = TRUE)
-  tmp <- apply(df[sampled_rows,] ,2, mean)
-  nmb <- unname((tmp['dCOST.ref'] - tmp['dCOST.test']) + wtp*(tmp['dQALY.test'] - tmp['dQALY.ref']))
-  nmb.test <- wtp*(tmp['dQALY.test']) -  (tmp['dCOST.test'])
-  nmb.ref <- wtp*(tmp['dQALY.ref']) -  (tmp['dCOST.ref'])
-  icer <- unname((tmp['dCOST.test'] - tmp['dCOST.ref']) / (tmp['dQALY.test'] - tmp['dQALY.ref']))
-  return(c(nmb))
-}
-
-micro_sample_sizes = seq(6,10.5,0.25)
-
-nc <- detectCores() 
-cl <- parallel::makeCluster(nc)
-doParallel::registerDoParallel(cl)
-clusterExport(cl, c("n"))
-n <- length(micro_sample_sizes)
-icer_micro_N <- 
-  foreach(i = icount(length(micro_sample_sizes)),.packages = "tcltk") %dopar% {
-    library("dplyr")
-    source(here::here("R/manifest.R"))
-    if(!exists("pb")) pb <- tkProgressBar("Parallel task", min=1, max=n)
-    setTkProgressBar(pb, i)  
-    icer_microsim_1y %>% get_microsim_nmb(n = 10^micro_sample_sizes[i])
-  } %>% 
-  set_names(micro_sample_sizes) %>% 
-  bind_rows() %>% 
-  t() %>% 
-  data.frame() %>% 
-  rownames_to_column(var = "N") %>% 
-  set_names(c("N","NMB")) %>% 
-  na.omit() %>% 
-  mutate(N = 10^as.numeric(paste0(N))) %>% 
-  tbl_df()
-
-stopCluster(cl)
-
-nc <- detectCores() 
-cl <- parallel::makeCluster(nc)
-doParallel::registerDoParallel(cl)
-clusterExport(cl, c("n"))
-n <- length(micro_sample_sizes)
-icer_micro1d_N <- 
-  foreach(i = icount(length(micro_sample_sizes)),.packages = "tcltk") %dopar% {
-    library("dplyr")
-    source(here::here("R/manifest.R"))
-    if(!exists("pb")) pb <- tkProgressBar("Parallel task", min=1, max=n)
-    setTkProgressBar(pb, i)  
-    icer_microsim_1d %>% get_microsim_nmb(n = 10^micro_sample_sizes[i])
-  } %>% 
-  set_names(micro_sample_sizes) %>% 
-  bind_rows() %>% 
-  t() %>% 
-  data.frame() %>% 
-  rownames_to_column(var = "N") %>% 
-  set_names(c("N","NMB")) %>% 
-  na.omit() %>% 
-  mutate(N = 10^as.numeric(paste0(N))) %>% 
-  tbl_df()
-stopCluster(cl)
-
-des_sample_sizes <- icer_des_N$N
-
-labels <- seq(2,10.5,0.5) #log10(des_sample_sizes)
-labels[(labels - floor(labels)) != 0] <- ""
-
-icer_micro_N_final <- 
-  icer_micro_N %>% 
-  mutate(cycle = "Yearly Cycle") %>% 
-  bind_rows(icer_micro1d_N %>% mutate(cycle = "Daily Cycle")) 
-
-
-lines <- data.frame(model=c("DEQ","Markov","Markov Corrected"),
-                    NMB=c(icer_deq["NMB"],icer_mar["NMB"],icer_mar_corr["NMB"]),stringsAsFactors = F) 
-
-dots <-   icer_des_N %>% mutate(model="DES") %>% 
-  bind_rows(icer_micro_N %>% mutate(model="Microsim Yearly")) %>% 
-  bind_rows(icer_micro1d_N %>% mutate(model="Microsim Daily")) 
-
-
-ggplot() +
-  geom_hline(data=lines,aes(yintercept=NMB,lty=model,colour=model,size=model)) +
-  scale_linetype_manual(name="",values=c("solid","dashed","dotdash")) + 
-  scale_color_manual(name="",values = c("black","black","orange")) + 
-  scale_size_manual(name="",values = c(0.5,0.5,0.8)) +
-  new_scale_color() +
-  geom_point(data=dots,aes(x=N,y=NMB,shape=model,colour=model)) +
-  scale_color_manual(name="",values = c("black","blue","red")) +
-  scale_shape_manual(name="",values = c(18,10,4)) +
-  theme_bw() +
-  ylab("NMB\n(Genotype vs. Reference)") + 
-  xlab("Number of Simulated Patients\n(log10)") + 
-  scale_x_continuous(breaks = 10^seq(2,10.5,0.5), labels = labels, trans="log10") +
-  theme(panel.grid.minor = element_blank())
-
-
-# icer_des_N %>% 
-#   ggplot(aes(x=N,y=NMB)) +
-#   geom_point()  + 
-#   theme_bw() + 
-#   geom_hline(aes(yintercept = icer_deq["NMB"]),lty=2)+
-#   geom_hline(aes(yintercept = icer_mar["NMB"]),lty=2,colour="red") +
-#   ylab("NMB\n(Genotype vs. Reference)") + 
-#   xlab("Number of Simulated Patients\n(log10)") + 
-#   scale_x_continuous(breaks = 10^seq(2,10.5,0.5), labels = labels, trans="log10") + 
-#   annotate("text",y=icer_deq[["NMB"]],x=1e3,label = "DEQ: NMB",hjust=0) +
-#   annotate("text",y=icer_mar[["NMB"]],x=10^2,label = "Markov: NMB",hjust=0,colour="red") +
-#   annotate("text",y=icer_mar_corr[["NMB"]],x=10^4,label = "Markov Corrected: NMB",hjust=0,colour="blue") +
-#   ylim(c(-1000,1000)) + 
-#   geom_point(data = icer_micro_N_final, aes(colour = cycle)) 
-
-```
-
-
-

@@ -153,4 +153,4 @@ markov_icer <- function(params, method="life-table")
   )
 }
 
-markov_icer(params) #sample code to run the model
+# markov_icer(params) #sample code to run the model
