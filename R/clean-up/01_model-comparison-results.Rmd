@@ -23,7 +23,6 @@ library(deSolve)
 library(flexsurv)
 library(conflicted)
 library(gt)
-source(here("plot-theme.R"))
 library(ggnewscale)
 library(Matrix)
 conflict_prefer("filter", "dplyr")
@@ -233,17 +232,19 @@ micro$logN <- factor(round(log10(micro$N)))
 
 tiff("./figs/Micro Simulation Convergence.tiff",res=300,units="in",width=6.5, height=5)
 
-ggplot(micro, aes(x=logN,y=NMB,color=timestep,fill=timestep),alpha=0.7) +
-    geom_boxplot(coef=1e30) +
+ggplot(data=micro %>% filter(N>1e3), aes(x=logN,y=NMB,color=timestep,fill=timestep),alpha=0.7) +
+    geom_boxplot(outlier.shape = NA) +
     scale_color_manual(name="",values = c("grey40","orange2","red3","blue","black")) +
     scale_fill_manual(name="",values = c("grey80","gold1","tomato","skyblue","khaki4")) +
     new_scale_color() +
-    geom_hline(data=ll,aes(yintercept=NMB,color=timestep,linetype=timestep)) + 
+    geom_hline(data=lines,aes(yintercept=NMB,color=timestep,linetype=timestep)) + 
     scale_linetype_manual(name="",values=c("solid","dashed","dotdash")) + 
     scale_color_manual(name="",values = c("black","darkgreen","purple")) + 
     scale_size_manual(name="",values = c(0.5,0.5,0.8)) +
-    xlab("Number of Simulated Patients\n(log)") + 
+    xlab("Number of Simulated Patients\n(log10)") +  
     theme_bw() +
+      scale_x_discrete(breaks = 2:11, labels = c("2\n100","3\n1k","4\n10k","5\n100k","6\n1mil","7\n10mil","8\n100mil","9\n1bil","10\n10bil","11\n100bil")) + 
+    ylim(c(-1100,1100)) +
     theme(panel.grid.minor.y=element_blank())
 
 dev.off()
@@ -258,32 +259,14 @@ dev.off()
 # Please refer to compare_runtime.R for a mini example of how we generate our results
 # Or directly load the results.
 # For stochastic models (DES/microsimulation), we ran at sample size of 10 million individuals.
-rt <- read.csv(here("data/runtime.csv"),stringsAsFactors = FALSE,row.names = NULL)
-b_deq <- rt[rt$name == "b_deq", ]
-b_des <- rt[rt$name == "b_des", ]
-b_mark_y <- rt[rt$name == "b_mark_y", ]
-b_mark_m <- rt[rt$name == "b_mark_m", ]
-b_mark_d <- rt[rt$name == "b_mark_d", ]
-b_mark_corr_y <- rt[rt$name == "b_mark_corr_y", ]
-b_mark_corr_m <- rt[rt$name == "b_mark_corr_m", ]
-b_micro_y <- rt[rt$name == "b_micro_y", ]
-b_micro_corr_y <- rt[rt$name == "b_micro_corr_y", ]
+runtimes <- read.csv(here("data/runtime.csv"),stringsAsFactors = FALSE,row.names = NULL)
 
-runtimes <- b_deq %>% mutate(model="DEQ") %>% 
-    bind_rows(b_des %>% mutate(model="DES (10mil)")) %>% 
-    bind_rows(b_mark_y %>% mutate(model="MARKOV-Y")) %>% 
-    bind_rows(b_mark_m %>% mutate(model="MARKOV-M")) %>% 
-    bind_rows(b_mark_d %>% mutate(model="MARKOV-D")) %>% 
-    bind_rows(b_mark_corr_y %>% mutate(model="MARKOV-EMB-Y")) %>% 
-    bind_rows(b_mark_corr_m %>% mutate(model="MARKOV-EMB-M")) %>%     
-    bind_rows(b_micro_y %>% mutate(model="MICROSIM-Y (10 mil)")) %>% 
-    bind_rows(b_micro_corr_y %>% mutate(model="MICROSIM-EMB-Y (10 mil)")) %>% 
-    mutate(times=time/10^9)
+value_labs <- paste(seq(-3,4,0.5),paste0("\n"),signif(10^seq(-3,4,0.5),2),"sec")
     
-tiff("./figs/Runtime Comparison.tiff",res=300,units="in",width=6, height=5)
+tiff("./figs/Runtime Comparison.tiff",res=300,units="in",width=8, height=5)
 ggplot(runtimes) +
-    geom_boxplot(aes(x=model,y=times),outlier.shape = 1,outlier.alpha = 0.5) +
-    scale_y_continuous(breaks = 10^seq(-3,4,0.5), labels = seq(-3,4,0.5), trans="log10") + ylab("log10(seconds)") + xlab("Method") +
+    geom_boxplot(aes(x=reorder(model,-times),y=times),outlier.shape = 1,outlier.alpha = 0.5) +
+    scale_y_continuous(breaks = 10^seq(-3,4,0.5), labels = value_labs, trans="log10") + ylab("log10(seconds)") + xlab("Method") +
     coord_flip() + theme_bw() +
     theme(panel.grid.major.y=element_blank())
 dev.off()
