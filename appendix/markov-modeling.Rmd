@@ -1,0 +1,420 @@
+---
+title: "Markov Modeling Recommendations"
+author: "Shawn Garbett"
+date: "3/17/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(Matrix)
+```
+
+*Practice yourself, for heaven's sake, in litttle things; and thence proceed to greater* --EPICTETUS
+
+## Rates vs. Percentages
+
+The first thing to distinguish is given a paper with published rates is to find if they are publishing Percent effected in a given timestep or are these continuous rates. While the units of both of these are essentially equivalent (by a factor of 100), the interpretation is different. It is a subtle but important difference.
+
+For example, let's assume that a stochastic event occurs to a group of individuals with a rate of 1/unit time. This follows an exponential distribution. Let's create a sample of 20000 individuals.
+
+```{r}
+x <- rexp(20000)
+
+hist(x)
+
+mean(x)
+median(x)
+
+# Percentage in first time cycle
+sum(x < 1) / length(x)
+```
+
+The mean is close to 1, but the percentage observed in the first time cycle is close to the theoretical 63.2%. This appears counter-intuitive but the long tail of the exponential distribution creates a situation where the continuous rate is not the observed percentage in a time cycle.
+
+This leads to the classic formulas used in economic modeling:
+
+$$p = 1 - e^{-r}$$
+$$r = -log(1-p)$$
+where $p$ represents the probability in a unit of time and $r$ represents the continuous rate.
+
+With Markov modeling it is best to start with the continuous rate when aggregating from many sources and embed this continuous rate into a timestep thus creating probability transitions for each time step. 
+
+To find the probability transition matrix of a timestep in Markov modeling from the continuous the following formula is used:
+
+$$ T_{prob} = e^{R} $$
+
+Where $R$ is the continuous rate matrix, and each diagonal is the negative sum of the rest of the row elements. $T_{prob}$ is the transition probability for a single time step, where each diagonal is 1 - the sum of the other row elements.
+
+One could have rates that change at each time step and this would return the proper embedding of the rates allowing for them to compete.
+
+
+## Competing Events
+
+What if a given source of data was the observed percentages and these were exclusionary states, i.e. competing. How could one reverse these and introduce other competing events? One has to solve what the generator matrix for the transition probabilities using eigenalue decomposition. Note, that this is not always possible for it trival to construct a transition probability matrix that has no generator. Consider the following, a model has a transition from A->B and from B->C specified as probabilities and no probability from A->C. This is impossible in the continuous Markov case as during a timestep it is possible to transition from A->C. By incorrectly specifying this transition, it makes it impossible to find a proper generator. eigenvalue decomposition will get as close as possible. If negative rates of transition are found using eigenvalue decomposition, then probabilities inconsistent with continuous rates have been specified.
+
+In mathematical terms, the generator matrix is the matrix logarithm of the transition probability matrix. A matrix has a logarithm *if and only if* if it is invertible.
+
+$$ A = \log T_{prob} $$
+
+The $\log$ can be found using spectral or eigenvalue decomposition. If $V$ is a matrix where equal column is an eigenvector of $T_{prob}$, then,
+
+$$A' = V^{-1} A V$$
+$$\log T_{prob} = V (\log A') V^{-1}$$
+
+### Example
+
+As an example, let us consider a model from "Decision Modelling for Heath Economic Evaluation" by Briggs, Clatxon, and Sculpher. In Table 2.2, they define a transition probability matrix for HIV monotherapy that was derived from observed percent transitions in a real cohort. 
+
+
+```{r}
+hiv_monotherapy_tp <- matrix(c(0.721, 0.202, 0.067, 0.010,
+                               0.000, 0.581, 0.407, 0.012,
+                               0.000, 0.000, 0.750, 0.250,
+                               0.000, 0.000, 0.000, 1.000), 
+                               nrow=4, byrow=TRUE,
+                               dimnames=list(c("A", "B", "C", "D"),
+                                             c("A", "B", "C", "D")))
+hiv_monotherapy_tp                                          
+```
+
+The bottom diagonal was corrected to be a Markov absorbing state by having 1 on the diagonal. Now, for the purposes of example, let's assume we wish to add a state "E", and it has a continuous rate of 0.2 to transitions from states "A" and "B" competing with other  
+
+To accomplish this we must find the continuous generator.
+```{r}
+V  <- eigen(hiv_monotherapy_tp)$vectors
+iV <- solve(V)
+Ap <- iV %*% hiv_monotherapy_tp %*% V
+
+Ap
+```
+
+Due to the numeric probabilities not being exactly correct, off diagonal elements of $A'$ are not zero, but they are quite close and we expected a diagonal matrix for $A'$. We will zero these off diagonal elements and assume that these non-zero elements are numerical error. Then continue by taking the log of the diagonal.
+
+```{r}
+lAp <- diag(log(diag(Ap)), nrow(Ap), ncol(Ap))
+
+R  <- V %*% lAp %*% iV
+
+R 
+```
+
+An now we have the continuous time rate generator for the Markov Model. There is still some numerical error creeping in, for example the bottom row, has values very near to zero, and the diagonal is not exactly the negative sum of the rest of the row. Let's clean this up just by tweaking the numbers numerical towards their constraints.
+
+```{r}
+R[abs(R) < 1e-6 ] <- 0
+
+
+rownames(R) <- c("A", "B", "C", "D")
+colnames(R) <- c("A", "B", "C", "D")
+
+round(R, 3)
+```
+
+Some numerical error is inevitable in this process and cannot be avoided. However, even cleaning up the small and obvious errors, the transition from B -> D is impossible since it's negative. Rates are relative to the occupancy of the source state, in this case B. Having a negative rate would mean that B would have some transitions in which the dead come alive into B based upon the occupancy of B. Obviously, this is not possible. The problem now is how to adjust the model's rates to be physically possible, while as faithful to the original data as possible. B is a sicker state, so it should have a higher death rate.
+
+First, let's double check the original with negative rate recapitulates the original probabilities
+
+```{r}
+expm(R)
+```
+
+Which exactly matches the original transition probability table given.
+
+Next, lets' assume that one has to pass into state C to die and the original data didn't have frequent enough measurements to detect all the transitions.
+
+```{r}
+# A more plausible death rate for 'A', 'B'
+R['A', 'D'] <- 0
+R['B', 'D'] <- 0
+
+diag(R) <- diag(R) - rowSums(R) # Keep it Markovian
+round(expm(R), 3)
+```
+
+The rate from A->D is within error of the original study. However, deaths from B are at a much higher rate. This is all under the assumption that one must pass through C to die, and the adjusted transitions reflect this.
+
+Now one is equipped to add a competing event to to the model as a rate adding a new row column with it's defined rates and compute the updated transition probability matrix.
+
+```{r}
+Rp <- rbind(R,  rep(0, 4))
+Rp <- cbind(Rp, rep(0, 5))
+rownames(Rp) <- c("A", "B", "C", "D", "E")
+colnames(Rp) <- c("A", "B", "C", "D", "E")
+
+Rp["A",  "E"] <- 0.2
+Rp["B",  "E"] <- 0.2
+
+diag(Rp) <- diag(Rp) - rowSums(Rp) # Rebalance diagonal preserving Markov properties
+
+round(expm(R), 3)  # Original embedded for comparison
+
+cat("\n")
+ 
+round(expm(Rp), 3) # Modified with competing E
+
+```
+
+These difficulties of working backward from probabilities unscore the importance of having the original estimates be rates that have been adjusted to be the non-competing rate (e.g. from survival analysis)
+
+## State Jumping
+
+The above example on HIV also illustrates another difficulty in correctly summarizing the costs and utilities. For example, we zeroed the rate of A->D, yet the transition matrix contains that transition.
+Assume that the transition B->C entailed a cost, given that some of the population goes A->B->C->D these transitions are hidden in the TP matrix, yet a summary of the number of B->C transitions is needed for a time step. One can solve this by adding non-Markovian states or accumulator states to track these transitions.
+
+The diagonal term is the negative sum of all *Markovian* states. Additional rows and columns can be added that violate the principal that total state occupancy cannot be created or destroyed, by simply leaving them out of the balancing term of the diagonal. 
+
+```{r}
+
+RwAcc <- cbind(rbind(R, rep(0, 4)), rep(0, 5))
+rownames(RwAcc) <- c("A", "B", "C", "D", "AccBC")
+colnames(RwAcc) <- c("A", "B", "C", "D", "AccBC")
+
+RwAcc['B', 'AccBC'] <- RwAcc['B', 'C']
+
+round(expm(RwAcc), 3)
+cat("\n")
+rowSums(expm(RwAcc)) # Note the > 1 probabilites as the AccBC node now duplicates some the population. 
+```
+
+Note that once embedded into probabilities, there is a transition from A->AccBC which tracks how many transitions from A->B->C and B->C occur. The original rate specified was zero for A->AccBC, but due to jumping states this now has a non-zero probability and the accumulator is able to track this. 
+
+Idealy the original rate estimates provided would have assumed a structural model that was sensible and rates could be estimated to match the data. This would have prevented the negative rate when estimating the generator from percentages. This is a statistical modeling problem outside the scope of this Markov modeling guide.
+
+For organization sake, it is recommended that the upper left matrix remain the original Markov and all the non-Markovian rows be to the bottom and right of the matrix.
+
+## Non-stationary Rates
+
+Another problem that occurs is that of non-stationary rates. What if a rate is changing over an interval time step? How is this best modelled? A first order approach would be to simply take the mean of the rates at either time point. A higher order approach is to integrate the total risk exposure over the time interval.
+
+$$r_{e} = \int_{t_1}^{t_2} r(t) dt$$
+This computes the effective rate $r_e$ from a time varying rate, $r(t)$. 
+
+For example, chance of secular death could be modeled using a Gompertz distribution, with a shape $a$ and rate $b$ parameter for the population under study. The hazard function of a distribution is the continuous rate function. The hazard function can be derived from the probability density function divided by 1 minus cumulative probability function. For the Gompertz this is,
+
+$$h(t) = \frac{f(t)}{1-F(t)} = \frac{b e^{at} e^{-b/a(e^{at}-1)}}{e^{-b/a (e^{at}-1)}} = b e^{at}$$
+
+From this the effective rate over a timestep of a discrete Markov simulation can be computed.
+
+$$r_{e} = \int_{t_1}^{t_2} b e^{at} dt = \frac{b}{a} (e^{at_2} - e^{at_1})$$
+
+While this exists as an anayltical result, in general it's better to 
+Using the effective risk over a time interval leads to improved accuracy of a simulation.
+
+# Tunnel States
+
+Tunnel states by definition are non-Markovian. However, they cannot be treated as accumulators, i.e. defined before exponentiation. This is due to their rates being infinite. This requires that the transition matrix be modified directly after computation. Enter the rates as zero, then modify post matrix exponentiation. A full example is below in the section `Bringing it All Together'
+
+# Rescaling and Integration
+
+Some have recommended rescaling the time scale to improve the accuracy of the Markov simulation. While this is true in principal, without using the tools above for embedding rates it leads to higher numerical error and has the opposite of the intended effect. To rescale this is done at the matrix exponentiation stage of the matrix. 
+
+$$ T_{p} = e^{R t} $$
+
+Where $t$ is the new time scaling factor. For example, if the rate matrix $R$ is in units of events per year and a monthly simulation is desired, $t=\frac{1}{12}$, thus Monthly $T_p = e^{R/12}$. 
+
+Another couple terms used commonly to improve accuracy when adding cost or utility over a simulation result is that of the half-cycle correction or the life table method. Don't use these terms, these are simply Newton's trapezoidal method for integrating evenly spaced points. The current state of the art in this area is the *alternate extended Simpson's rule* which estimate higher order terms of rate of change of the function. In most health economic simulations the overall change in curvature is acceptably smooth and this technique returns reasonably accurate results.
+
+The *alternate extended Simpson's rule* to integrate a curve with evenly spaced samples is as follows:
+
+$$ \int^b_a x(t) dt \approx \frac{h}{48}\left[ 17 x_0 + 59 x_1 + 43 x_2 + 49 x_3 + \sum_{i=4}^{n-4} x_i 49x_{n-3} + 43x_{n-2}+59x_{n-1}+17x_n  \right] $$
+
+Where $a$ and $b$ represent the time window of the simulation, $x(t)$ is the theoretical function that is being summed, $h$ is the width of the time step, and $x_i$ is the simulation result at time point $i$.
+
+This method requires at least 8 time points. If one's simulation is shorter, there are shorter versions of Simpson's rules with fewer higher order terms.
+
+In general with accurate time step embedding of rates and Simpson's rules rescaling is not required. If one does rescaling, compare the existing time points from the bigger timestep to the smaller, they should line up exactly. If they don't line up, then rescaling is not being done properly.
+
+# Bringing It All Together
+
+Now for a simple example that brings all of these techniques together into a single example.
+
+We will assume there exists a state "H" healthy, A condition "A" and death from "A" and secular death. An individual of our target population develop "A" at a rate of 0.1. Individuals with "A" die at a rate of 0.3. Secular death can occur from "H" or "A" with Gompertz distribution with a shape $a=0.1$ and rate $b=1/1200$ starting at 40 years old. "A" incurs a one time cost of $1000. Existing in state "A" has a disutilty of 0.2 for 2 years. We wish to simulate totals for 20 years.
+
+SD <- (H -> A) -> AD
+
+First we define our effective death rate function for a given time step using the Gompertz hazard integration above.
+
+```{r}
+rate_secular_death_by_age <- function(t, h=1, a=0.1, b=1/1200)
+{
+  (b/a) * (exp(a*t) - exp(a*(t-h)))
+}
+```
+
+Next we define our Markovian embeddable rate transition matrix. It must be generated for each timestep due to the non-stationary death rate which competes with other possible events.
+
+```{r}
+markov_rate_matrices<- function(t, h=1)
+{
+  lapply(t, function(tt){
+    r.secular <- rate_secular_death_by_age(tt+40, h)
+  
+    x <- matrix(c(0.0, 0.1, 0.0, r.secular,
+                  0.0, 0.0, 0.3, r.secular,
+                  0.0, 0.0, 0.0, 0.0,
+                  0.0, 0.0, 0.0, 0.0),
+           nrow=4,
+           ncol=4,
+           byrow=TRUE,
+           dimnames=list(c("H", "A", "DA", "DS"),
+                         c("H", "A", "DA", "DS")))
+  
+    diag(x) <- -rowSums(x)
+    x
+  })
+}
+```
+
+Next we modify the matrix to include an accumluator 'ACC' for death from A 'DA' entry. Technically this wouldn't be required as 'DA' is an absorbing state, but for the purposes of example it is included. 
+
+We will also create a T1 and T2 state for tracking tunnels and allow exit from due to external death. This requires us to have a recieving bucket for these external risks 'N' for NULL so as not to disturb the balance of the Markov.
+
+```{r}
+non_markov_rate_matrices <- function(t, h=1)
+{
+  markov     <- markov_rate_matrices(t, h)
+  non_markov <- list()
+  for(i in t)
+  {
+    # Expand matrix
+    non_markov[[i]] <- cbind(markov[[i]],     matrix(rep(0, 16), nrow=4))
+    non_markov[[i]] <- rbind(non_markov[[i]], matrix(rep(0, 32), nrow=4))
+  }
+  
+  
+  lapply(non_markov, function(m){
+    # Put in State Names
+    rownames(m) <- c("H", "A", "DA" ,"DS", "ACC", "T1", "T2", "N")
+    colnames(m) <- c("H", "A", "DA" ,"DS", "ACC", "T1", "T2", "N")
+    
+    # Define Accumulator
+    m["H", "ACC"] <- m["H", "A"] 
+    
+    # Define Tunnel state entry
+    m["H", "T1"]  <- m["H", "A"]
+    
+    m  # Note: Tunnel states are not fully defined at this point.
+  })
+
+}
+
+```
+
+
+Next we embed the non-Markovian matrices into the time step and finish the definition of the tunnel states in the probability space.
+
+```{r}
+transition_prob <- function(t, h=1)
+{
+  # Embed the matrices into the timesteps
+  tp <- lapply(non_markov_rate_matrices(t, h), function(m) expm(m*h))
+  
+  lapply(tp, function(m)
+  {
+    # It is possible to exit tunnel to external risk of death
+    m["T1", "N"]  <- m["A", "DA"] + m["A", "DS"]
+    m["T1", "T1"] <- 0  # Cannot remain in tunnel
+    m["T1", "T2"] <- 1-m["T1", "N"] # The tunnel is everything else 
+
+    # T2 is terminal state
+    m["T2", "T2"] <- 0
+    m["T2", "N"]  <- 1
+    
+    # Note: At this point, the "N" state could be stripped as it was
+    #       only required for the embedding, and serves no other purpose
+    #       at this point
+    
+    states <- c("H", "A", "DA", "DS", "ACC", "T1" ,"T2")
+    m[states, states]
+  })
+}
+```
+
+Now the simulation matrices are fully defined at each timestep, and it can be run versus a starting population. 
+
+```{r}
+Y <- t(c(H=1, A=0, DA=0, DS=0, ACC=0, T1=0, T2=0))
+
+simulation <- do.call(rbind, lapply(transition_prob(1:20), function(tp) {
+  Y <<- Y %*% tp # The double left arrow assigns the value back to the original Y in the outer scope
+}))
+
+simulation <- rbind(
+  c(H=1, A=0, DA=0, DS=0, ACC=0, T1=0, T2=0), 
+  simulation
+)
+```
+
+Let's plot the trajectories of the simulation.
+```{r}
+plot(0:20, simulation[,"H"], ylim=c(0,1), typ="l", ylab="ratio of total population", xlab="Year")
+
+
+lines(0:20, simulation[,"A"],   col="red",       lty=2, lwd=2)
+lines(0:20, simulation[,"DA"],  col="blue",      lty=3, lwd=2)
+lines(0:20, simulation[,"DS"],  col="darkgreen", lty=4, lwd=2)
+lines(0:20, simulation[,"ACC"], col="orange",    lty=5, lwd=2)
+lines(0:20, rowSums(simulation[,c("T1", "T2")]), col="purple", lty=6, lwd=2)
+
+legend(5, 1.0, c("H", "A", "DA", "DS", "ACC", "T"), lty=1:6, 
+       col=c("black", "red", "blue", "darkgreen", "orange", "purple"), cex=0.8, lwd=2)
+```
+
+
+## Numerical Checkpoint
+
+A good check at this point is to see if the simulation kept the total population consistent, i.e. neither created nor destroyed occupants of the Markov simulation. If the plot strays far from zero, then something is wrong in constructing the model.
+
+```{r}
+plot(0:20, 1-rowSums(simulation[,c("H", "A", "DA", "DS")]), xlab="time (years)", ylab="absolute error", main="Total Population Numerical Error")
+```
+
+Now with the simulation complete and passing a simple check, one can proceed to integrate costs and qualities. 
+
+First let's define the alternate Simpson's coefficient function for integration.
+
+
+```{r}
+
+# Better accuracy that "life-table" aka trapezoidal method
+alt_simp_coef <- function(i) c(17, 59, 43, 49, rep(48, i-8), 49, 43, 59, 17) / 48
+alt_simp      <- function(x,h) h*sum(alt_simp_coef(length(x)) * x)
+```
+
+### Cost of 'A'
+
+```{r}
+1000*simulation[21,"ACC"] # The last point is the total
+```
+
+### Total Possible Life
+
+```{r}
+  alt_simp(rowSums(simulation[,c("H", "A")]), 1)
+```
+
+### Total Disutility of 'A' via Tunnel
+
+```{r}
+  alt_simp(rowSums(simulation[,c("T1", "T2")]), 1)
+```
+
+### Final Utility
+
+```{r}
+  alt_simp(rowSums(simulation[,c("H", "A")]), 1) - 
+  alt_simp(rowSums(simulation[,c("T1", "T2")]), 1)
+```
+
+Thus all the basic tools required for accurate Markov modeling are described. 
+
+## Discounted Sums
+
+Discounting summations is simply multiplying the data by a discounting function pre-integration.
+
+XXX Example TBD XXX
+
+## References
+
+XXX TBD XXX
