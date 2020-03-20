@@ -78,7 +78,7 @@ hiv_monotherapy_tp <- matrix(c(0.721, 0.202, 0.067, 0.010,
 hiv_monotherapy_tp                                          
 ```
 
-The bottom diagonal was corrected to be a Markov absorbing state by having 1 on the diagonal. Now, for the purposes of example, let's assume we wish to add a state "E", and it has a continuous rate of 0.2 that competes with other transitions. 
+The bottom diagonal was corrected to be a Markov absorbing state by having 1 on the diagonal. Now, for the purposes of example, let's assume we wish to add a state "E", and it has a continuous rate of 0.2 to transitions from states "A" and "B" competing with other  
 
 To accomplish this we must find the continuous generator.
 ```{r}
@@ -89,7 +89,7 @@ Ap <- iV %*% hiv_monotherapy_tp %*% V
 Ap
 ```
 
-Due to the numeric probabilities not being exactly correct, the off diagonal elements of $A'$ are not zero, but they are quite close. We will zero these off diagonal elements and assume that the non-zero elements are numerical error. Then continue by taking the log of the diagonal.
+Due to the numeric probabilities not being exactly correct, off diagonal elements of $A'$ are not zero, but they are quite close and we expected a diagonal matrix for $A'$. We will zero these off diagonal elements and assume that these non-zero elements are numerical error. Then continue by taking the log of the diagonal.
 
 ```{r}
 lAp <- diag(log(diag(Ap)), nrow(Ap), ncol(Ap))
@@ -113,7 +113,7 @@ round(R, 3)
 
 Some numerical error is inevitable in this process and cannot be avoided. However, even cleaning up the small and obvious errors, the transition from B -> D is impossible since it's negative. Rates are relative to the occupancy of the source state, in this case B. Having a negative rate would mean that B would have some transitions in which the dead come alive into B based upon the occupancy of B. Obviously, this is not possible. The problem now is how to adjust the model's rates to be physically possible, while as faithful to the original data as possible. B is a sicker state, so it should have a higher death rate.
 
-First, let's double check it recapitulates the original rates.
+First, let's double check the original with negative rate recapitulates the original probabilities
 
 ```{r}
 expm(R)
@@ -134,9 +134,28 @@ round(expm(R), 3)
 
 The rate from A->D is within error of the original study. However, deaths from B are at a much higher rate. This is all under the assumption that one must pass through C to die, and the adjusted transitions reflect this.
 
-Now one could add a competing event to to the model as a rate adding a new row column with it's defined rates and compute the updated transition probability matrix. 
+Now one is equipped to add a competing event to to the model as a rate adding a new row column with it's defined rates and compute the updated transition probability matrix.
 
-These difficulties of working backward from probabilities unscore the importance of having the original estimates be rates that have been adjusted to be the non-competing rate (e.g. survival analysis)
+```{r}
+Rp <- rbind(R,  rep(0, 4))
+Rp <- cbind(Rp, rep(0, 5))
+rownames(Rp) <- c("A", "B", "C", "D", "E")
+colnames(Rp) <- c("A", "B", "C", "D", "E")
+
+Rp["A",  "E"] <- 0.2
+Rp["B",  "E"] <- 0.2
+
+diag(Rp) <- diag(Rp) - rowSums(Rp) # Rebalance diagonal preserving Markov properties
+
+round(expm(R), 3)  # Original embedded for comparison
+
+cat("\n")
+ 
+round(expm(Rp), 3) # Modified with competing E
+
+```
+
+These difficulties of working backward from probabilities unscore the importance of having the original estimates be rates that have been adjusted to be the non-competing rate (e.g. from survival analysis)
 
 ## State Jumping
 
@@ -152,12 +171,15 @@ rownames(RwAcc) <- c("A", "B", "C", "D", "AccBC")
 colnames(RwAcc) <- c("A", "B", "C", "D", "AccBC")
 
 RwAcc['B', 'AccBC'] <- RwAcc['B', 'C']
+
 round(expm(RwAcc), 3)
+cat("\n")
+rowSums(expm(RwAcc)) # Note the > 1 probabilites as the AccBC node now duplicates some the population. 
 ```
 
 Note that once embedded into probabilities, there is a transition from A->AccBC which tracks how many transitions from A->B->C and B->C occur. The original rate specified was zero for A->AccBC, but due to jumping states this now has a non-zero probability and the accumulator is able to track this. 
 
-Idealy the original rate estimates would have assumed a structural model that was sensible and rates could be estimated to match the data. This is a statistical modeling problem outside the scope of this Markov modeling guide.
+Idealy the original rate estimates provided would have assumed a structural model that was sensible and rates could be estimated to match the data. This would have prevented the negative rate when estimating the generator from percentages. This is a statistical modeling problem outside the scope of this Markov modeling guide.
 
 For organization sake, it is recommended that the upper left matrix remain the original Markov and all the non-Markovian rows be to the bottom and right of the matrix.
 
@@ -191,16 +213,15 @@ $$ T_{p} = e^{R t} $$
 
 Where $t$ is the new time scaling factor. For example, if the rate matrix $R$ is in units of events per year and a monthly simulation is desired, $t=\frac{1}{12}$, thus Monthly $T_p = e^{R/12}$. 
 
-Another couple terms used commonly to improve accuracy when adding cost or utility over a simulation result is that of the half-cycle correction or the life table method. Don't use these terms, these are simply Newton's trapezoidal method for integrating evenly spaced points. The current state of the art in this area is the *alternate extended Simpson's rule* which estimate higher order terms of rate of change of the function. In most health economic simulations the overall change in curvature is acceptably smooth and this technique returns acceptibly accurate results.
+Another couple terms used commonly to improve accuracy when adding cost or utility over a simulation result is that of the half-cycle correction or the life table method. Don't use these terms, these are simply Newton's trapezoidal method for integrating evenly spaced points. The current state of the art in this area is the *alternate extended Simpson's rule* which estimate higher order terms of rate of change of the function. In most health economic simulations the overall change in curvature is acceptably smooth and this technique returns reasonably accurate results.
 
-The *alternate extended Simpson's rule* to integrate a curve is as follows:
+The *alternate extended Simpson's rule* to integrate a curve with evenly spaced samples is as follows:
 
 $$ \int^b_a x(t) dt \approx \frac{h}{48}\left[ 17 x_0 + 59 x_1 + 43 x_2 + 49 x_3 + \sum_{i=4}^{n-4} x_i 49x_{n-3} + 43x_{n-2}+59x_{n-1}+17x_n  \right] $$
 
 Where $a$ and $b$ represent the time window of the simulation, $x(t)$ is the theoretical function that is being summed, $h$ is the width of the time step, and $x_i$ is the simulation result at time point $i$.
 
 This method requires at least 8 time points. If one's simulation is shorter, there are shorter versions of Simpson's rules with fewer higher order terms.
-
 
 In general with accurate time step embedding of rates and Simpson's rules rescaling is not required. If one does rescaling, compare the existing time points from the bigger timestep to the smaller, they should line up exactly. If they don't line up, then rescaling is not being done properly.
 
@@ -221,7 +242,7 @@ rate_secular_death_by_age <- function(t, h=1, a=0.1, b=1/1200)
 }
 ```
 
-Next we define our Markovian embeddable rate transition matrix.
+Next we define our Markovian embeddable rate transition matrix. It must be generated for each timestep due to the non-stationary death rate which competes with other possible events.
 
 ```{r}
 markov_rate_matrices<- function(t, h=1)
@@ -316,7 +337,7 @@ Now the simulation matrices are fully defined at each timestep, and it can be ru
 Y <- t(c(H=1, A=0, DA=0, DS=0, ACC=0, T1=0, T2=0))
 
 simulation <- do.call(rbind, lapply(transition_prob(1:20), function(tp) {
-  Y <<- Y %*% tp
+  Y <<- Y %*% tp # The double left arrow assigns the value back to the original Y in the outer scope
 }))
 
 simulation <- rbind(
@@ -387,3 +408,13 @@ alt_simp      <- function(x,h) h*sum(alt_simp_coef(length(x)) * x)
 ```
 
 Thus all the basic tools required for accurate Markov modeling are described. 
+
+## Discounted Sums
+
+Discounting summations is simply multiplying the data by a discounting function pre-integration.
+
+XXX Example TBD XXX
+
+## References
+
+XXX TBD XXX
