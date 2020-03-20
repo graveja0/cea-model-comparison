@@ -80,6 +80,11 @@ params$interval = 1
 icer_mar_corr_1y <- markov_corr_icer(params)
 params$interval = 12
 icer_mar_corr_1m <- markov_corr_m_icer(params)
+# This requires lots of memory to run locally, better to load the saved result.
+# params$interval = 365
+# icer_mar_corr_1d <- markov_corr_m_icer(params)
+icer_mar_corr_1d <-
+    read.csv(here("data/icer_mar_corr_1d.csv"),stringsAsFactors = FALSE) %>% unlist() 
 
 # Uncorrected Markov 
 params$interval = 1
@@ -87,7 +92,7 @@ icer_mar_1y <- markov_icer(params)
 params$interval = 12
 icer_mar_1m <- markov_icer(params) 
 params$interval = 365
-icer_mar_1d <- markov_icer(params) 
+icer_mar_1d <- markov_icer(params)
 
 # Discrete Event Simulation
 icer_des <- des_icer(params,N = 1e7, seed = 123)
@@ -97,7 +102,7 @@ icer_des <- des_icer(params,N = 1e7, seed = 123)
 # aggregating simulations with small cohort size (1k individuals).
 # Please refer to parallel_microsim.R for a mini example of how we iterate the simulation and scale it up.
 # Or directly load the results.
-micro_r <- read.csv(here("data/microsim_results.csv"),stringsAsFactors = FALSE,row.names = NULL) 
+micro_r <- read.csv(here("data/microsim_results.csv"),stringsAsFactors = FALSE) 
 cn <- c("dCOST.ref","dCOST.test","dQALY.ref","dQALY.test","ICER","NMB")
 icer_micro_y <- micro_r[micro_r$model=="micro_y",] %>% select_at(cn)
 icer_micro_d <- micro_r[micro_r$model=="micro_d",] %>% select_at(cn)
@@ -110,6 +115,7 @@ result <-
        "MARKOV_DAY" = convert_to_df(icer_mar_1d),
        "MARKOV_MON" = convert_to_df(icer_mar_1m),
        "MARKOV_YR" = convert_to_df(icer_mar_1y),
+       "MARKOV_EMB_DAY" = convert_to_df(icer_mar_corr_1d),
        "MARKOV_EMB_MON" = convert_to_df(icer_mar_corr_1m),
        "MARKOV_EMB_YR" = convert_to_df(icer_mar_corr_1y),
        "DES" = convert_to_df(icer_des),
@@ -130,7 +136,7 @@ names(result)
 lbl_m <- c(
                           "Differential Equations",
                           "Markov Cohort - Daily Cycle","Markov Cohort - Monthly Cycle","Markov Cohort - Yearly Cycle",
-                          #"Embedded Markov Cohort - Daily Cycle",
+                          "Embedded Markov Cohort - Daily Cycle",
                           "Embedded Markov Cohort - Monthly Cycle",
                           "Embedded Markov Cohort - Yearly Cycle",
                           "Discrete Event Simulation",
@@ -172,10 +178,10 @@ table_main_results %>%
 
 table_main_results[,-1] %>% 
   gt(rowname_col = "Model Type") %>% 
-  tab_row_group(rows = 1:11, group = "ICER") %>% 
-  tab_row_group(rows = 12:22, group = "Net Monetary Benefit (NMB)") %>% 
-  tab_row_group(rows = 23:33, group = "Mean QALYs") %>% 
-  tab_row_group(rows = 34:44, group = "Mean Costs") %>% 
+  tab_row_group(rows = 1:12, group = "ICER") %>% 
+  tab_row_group(rows = 13:24, group = "Net Monetary Benefit (NMB)") %>% 
+  tab_row_group(rows = 25:36, group = "Mean QALYs") %>% 
+  tab_row_group(rows = 37:48, group = "Mean Costs") %>% 
   tab_footnote(footnote = "QALY = Quality-Adjusted Life Years", cells_group("Mean QALYs")) %>% 
   tab_footnote(footnote = "ICER = Incremental Cost-Effectiveness Ratio", cells_group("ICER")) %>% 
   #tab_footnote(footnote = "Willingness to Pay = $100,000 per QALY",cells_group("Net Monetary Benefit")) %>% 
